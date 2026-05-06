@@ -1,0 +1,2291 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AlfaPro Bot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    .tab-active { background-color: #111827; color: #f9fafb; }
+    .tab-inactive { background-color: transparent; color: #9ca3af; }
+    .tab-inactive:hover { background-color: #1f2937; color: #f3f4f6; }
+    .badge-ok   { background-color: #065f46; color: #d1fae5; }
+    .badge-err  { background-color: #7f1d1d; color: #fecaca; }
+    .badge-warn { background-color: #78350f; color: #fde68a; }
+    .badge-bull { background-color: #064e3b; color: #6ee7b7; }
+    .badge-bear { background-color: #7f1d1d; color: #fca5a5; }
+    .badge-neutral { background-color: #374151; color: #d1d5db; }
+    .tf-btn        { background-color: #1f2937; color: #9ca3af; }
+    .tf-btn:hover  { background-color: #374151; }
+    .tf-btn-active { background-color: #10b981; color: #052e1d; font-weight: 600; }
+    .sym-item:hover { background-color: #1f2937; }
+    .sym-item-active { background-color: #065f46; color: #d1fae5; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <div x-data="app()" x-init="init()" class="max-w-[1600px] mx-auto p-4">
+
+    <!-- =================== Header =================== -->
+    <header class="flex items-center justify-between mb-4 pb-3 border-b border-gray-800">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-600 flex items-center justify-center font-bold text-gray-900 text-xl">α</div>
+        <div>
+          <h1 class="text-xl font-bold">AlfaPro Bot</h1>
+          <p class="text-[11px] text-gray-500 font-mono" x-text="health.serial || 'loading…'"></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 text-sm">
+        <!-- Paper/Live mode indicator -->
+        <button @click="openModeDialog()"
+                class="px-2 py-1 rounded text-xs font-bold tracking-wide transition"
+                :class="tradingMode.mode === 'live' ? 'bg-red-700 hover:bg-red-600 text-red-100' : 'bg-blue-700 hover:bg-blue-600 text-blue-100'"
+                :title="tradingMode.mode === 'live' ? 'CANLI MOD — gerçek para!' : 'Paper (simülasyon) mod'">
+          <span x-text="tradingMode.mode === 'live' ? '🔴 LIVE' : '📝 PAPER'"></span>
+        </button>
+        <span class="text-xs text-gray-500">Faz <span x-text="health.phase || '?'"></span></span>
+        <span class="text-xs text-gray-500" x-text="'v' + (health.version || '?')"></span>
+        <!-- WS bağlantı durumu -->
+        <span class="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono"
+              :class="{
+                'bg-emerald-900 text-emerald-300': wsStatus === 'live',
+                'bg-yellow-900 text-yellow-300':   wsStatus === 'connecting',
+                'bg-red-900   text-red-300':       wsStatus === 'error' || wsStatus === 'off',
+              }"
+              :title="wsStatus === 'live' ? 'Gerçek zamanlı bağlantı aktif' : 'Bağlantı yok — yeniden bağlanılıyor'">
+          <span class="w-2 h-2 rounded-full inline-block"
+                :class="{
+                  'bg-emerald-400 animate-pulse': wsStatus === 'live',
+                  'bg-yellow-400 animate-pulse':  wsStatus === 'connecting',
+                  'bg-red-400':                   wsStatus === 'error' || wsStatus === 'off',
+                }"></span>
+          <span x-text="wsStatus === 'live' ? 'CANLI' : wsStatus === 'connecting' ? 'BAĞLANIYOR' : 'KESİK'"></span>
+        </span>
+        <span class="px-2 py-1 rounded text-xs" :class="health.ok ? 'badge-ok' : 'badge-err'"
+              x-text="health.ok ? 'ÇEVRİMİÇİ' : 'ÇEVRİMDIŞI'"></span>
+      </div>
+    </header>
+
+    <!-- Mode switch dialog -->
+    <div x-show="modeDialog.show" x-cloak
+         class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+         @click.self="modeDialog.show = false">
+      <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full">
+        <h3 class="text-lg font-bold mb-2">Trading Modu Değiştir</h3>
+        <p class="text-sm text-gray-400 mb-4">
+          Şu an: <span class="font-mono" :class="tradingMode.mode === 'live' ? 'text-red-400' : 'text-blue-400'"
+          x-text="tradingMode.mode.toUpperCase()"></span>
+        </p>
+        <template x-if="tradingMode.mode === 'paper'">
+          <div class="space-y-3">
+            <div class="bg-red-950 border border-red-800 text-red-200 p-3 rounded text-sm">
+              <strong>⚠ Uyarı:</strong> Canlı mod gerçek para ile işlem yapar.
+              Aktif bir Bitget API anahtarın olması ve bakiye/risk ayarlarının doğru olması gerekir.
+              Küçük bakiye ile ve az kaldıraçla başla.
+            </div>
+            <label class="flex items-start gap-2 text-sm">
+              <input type="checkbox" x-model="modeDialog.confirmLive" class="mt-1 accent-red-500">
+              <span>Riski anladım, canlı moda geçmek istiyorum.</span>
+            </label>
+            <div class="flex gap-2 justify-end pt-2">
+              <button @click="modeDialog.show = false" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm">İptal</button>
+              <button @click="switchMode('live')" :disabled="!modeDialog.confirmLive"
+                      class="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 rounded text-sm font-medium">
+                Canlıya Geç
+              </button>
+            </div>
+          </div>
+        </template>
+        <template x-if="tradingMode.mode === 'live'">
+          <div class="space-y-3">
+            <p class="text-sm text-gray-300">Paper moda geri dönmek istiyor musun?</p>
+            <div class="text-xs text-gray-500">Açık canlı pozisyonlar kapanmaz; sadece yeni işlemler simüle edilir.</div>
+            <div class="flex gap-2 justify-end pt-2">
+              <button @click="modeDialog.show = false" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm">İptal</button>
+              <button @click="switchMode('paper')" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-medium">
+                Paper'a Dön
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- =================== Tabs =================== -->
+    <nav class="flex gap-1 mb-4 border-b border-gray-800">
+      <template x-for="t in tabs" :key="t.id">
+        <button @click="activeTab = t.id"
+                :class="activeTab === t.id ? 'tab-active' : 'tab-inactive'"
+                class="px-4 py-2 rounded-t-lg text-sm font-medium transition"
+                x-text="t.label"></button>
+      </template>
+    </nav>
+
+    <!-- ========================================== -->
+    <!-- ============= DASHBOARD TAB ============== -->
+    <!-- ========================================== -->
+    <section x-show="activeTab === 'dashboard'" x-cloak>
+
+      <!-- Sembol + timeframe kontrol çubuğu -->
+      <div class="bg-gray-900 rounded-lg p-3 border border-gray-800 mb-3 flex flex-wrap gap-3 items-center">
+
+        <!-- Sembol seçici -->
+        <div class="relative" x-data="{ open: false }" @click.away="open = false">
+          <button @click="open = !open; if(open && symbols.length===0) loadSymbols()"
+                  class="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded text-sm font-mono flex items-center gap-2">
+            <span x-text="selectedSymbol || 'Sembol seç'"></span>
+            <span class="text-gray-500">▾</span>
+          </button>
+          <div x-show="open" x-cloak
+               class="absolute z-20 top-full left-0 mt-1 w-72 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl">
+            <input x-model="symbolSearch" type="text"
+                   placeholder="Ara (BTC, ETH, XAU...)"
+                   class="w-full bg-gray-800 px-3 py-2 rounded-t-lg text-sm focus:outline-none">
+            <div class="max-h-80 overflow-y-auto">
+              <div x-show="symbolsLoading" class="px-3 py-4 text-xs text-gray-500">Yükleniyor…</div>
+              <div x-show="!symbolsLoading && symbols.length === 0" class="px-3 py-4 text-xs text-gray-500">
+                Sembol listesi yüklenemedi.<br>
+                Önce Ayarlar'dan Bitget API anahtarı ekle.
+              </div>
+              <template x-for="s in filteredSymbols" :key="s.symbol">
+                <button @click="selectSymbol(s.symbol); open = false"
+                        class="sym-item block w-full text-left px-3 py-1.5 text-sm font-mono"
+                        :class="s.symbol === selectedSymbol ? 'sym-item-active' : ''">
+                  <span x-text="s.symbol"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timeframe butonları -->
+        <div class="flex gap-1">
+          <template x-for="tf in timeframes" :key="tf">
+            <button @click="changeTimeframe(tf)"
+                    class="tf-btn px-3 py-2 rounded text-xs font-semibold transition"
+                    :class="timeframe === tf ? 'tf-btn-active' : ''"
+                    x-text="tf"></button>
+          </template>
+        </div>
+
+        <!-- Yenile -->
+        <button @click="loadAnalysis()" :disabled="loading"
+                class="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 px-3 py-2 rounded text-xs">
+          <span x-show="!loading">↻ Yenile</span>
+          <span x-show="loading">…</span>
+        </button>
+
+        <!-- Oto yenile -->
+        <label class="flex items-center gap-2 text-xs text-gray-400 ml-auto">
+          <input type="checkbox" x-model="autoRefresh" @change="toggleAutoRefresh()" class="accent-emerald-500">
+          Oto yenile (15sn)
+        </label>
+      </div>
+
+      <!-- Hata şeridi -->
+      <div x-show="error" x-cloak class="bg-red-950 border border-red-800 text-red-200 px-4 py-2 rounded mb-3 text-sm">
+        <span x-text="error"></span>
+      </div>
+
+      <!-- İlk karşılama (sembol seçilmeden) -->
+      <div x-show="!selectedSymbol && !error" x-cloak
+           class="bg-gray-900 border border-gray-800 rounded-lg p-12 text-center">
+        <div class="text-5xl mb-3">📊</div>
+        <div class="text-gray-300 text-lg mb-1">Başlamak için bir sembol seç</div>
+        <div class="text-xs text-gray-500">Yukarıdan sembol ve timeframe seç; grafik ve indikatörler otomatik yüklenir.</div>
+      </div>
+
+      <!-- Durum kartları -->
+      <div x-show="analysis" x-cloak class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-3">
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">Son Fiyat</div>
+          <div class="text-lg font-bold font-mono" x-text="fmt(analysis?.last_price, 4)"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">24s Değişim</div>
+          <div class="text-lg font-bold font-mono"
+               :class="(analysis?.change_24h_pct || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+               x-text="(analysis?.change_24h_pct != null ? (analysis.change_24h_pct.toFixed(2) + '%') : '—')"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">Trend (SMC)</div>
+          <div class="mt-1">
+            <span class="px-2 py-0.5 rounded text-xs font-semibold"
+                  :class="{
+                    'badge-bull': analysis?.smc?.current_trend === 'bullish',
+                    'badge-bear': analysis?.smc?.current_trend === 'bearish',
+                    'badge-neutral': !analysis?.smc?.current_trend || analysis?.smc?.current_trend === 'neutral'
+                  }"
+                  x-text="(analysis?.smc?.current_trend || 'neutral').toUpperCase()"></span>
+          </div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">RSI <span x-text="timeframe"></span></div>
+          <div class="text-lg font-bold font-mono"
+               :class="rsiColor(analysis?.indicators_last?.rsi)"
+               x-text="fmt(analysis?.indicators_last?.rsi, 1)"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">MACD</div>
+          <div class="text-lg font-bold font-mono"
+               :class="(analysis?.indicators_last?.macd_hist || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+               x-text="fmt(analysis?.indicators_last?.macd_hist, 4)"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">ATR</div>
+          <div class="text-lg font-bold font-mono" x-text="fmt(analysis?.indicators_last?.atr, 4)"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">StochRSI K/D</div>
+          <div class="text-lg font-bold font-mono"
+               :class="analysis?.indicators_last?.stoch_k != null
+                 ? (analysis.indicators_last.stoch_k > 80 ? 'text-red-400'
+                   : analysis.indicators_last.stoch_k < 20 ? 'text-emerald-400'
+                   : 'text-gray-200') : 'text-gray-600'"
+               x-text="analysis?.indicators_last?.stoch_k != null
+                 ? fmt(analysis.indicators_last.stoch_k, 1) + ' / ' + fmt(analysis.indicators_last.stoch_d, 1)
+                 : '—'">
+          </div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-3 border border-gray-800">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wide">VWAP</div>
+          <div class="text-lg font-bold font-mono text-cyan-400"
+               x-text="analysis?.indicators_last?.vwap != null ? fmt(analysis.indicators_last.vwap, 4) : '—'">
+          </div>
+        </div>
+      </div>
+
+      <!-- Ana grafik -->
+      <div x-show="analysis" x-cloak class="bg-gray-900 rounded-lg border border-gray-800 p-3 mb-3">
+        <div class="flex justify-between items-center mb-2">
+          <div class="text-xs text-gray-500">
+            <span class="font-semibold text-gray-300" x-text="analysis?.symbol"></span>
+            <span class="text-gray-600">·</span>
+            <span x-text="analysis?.timeframe"></span>
+            <span class="text-gray-600">·</span>
+            <span x-text="(analysis?.candles?.length || 0) + ' mum'"></span>
+          </div>
+          <div class="text-xs text-gray-500 flex gap-3">
+            <label class="flex items-center gap-1"><input type="checkbox" x-model="show.emas" @change="renderCharts()" class="accent-emerald-500"> EMA</label>
+            <label class="flex items-center gap-1"><input type="checkbox" x-model="show.bbands" @change="renderCharts()" class="accent-emerald-500"> BB</label>
+            <label class="flex items-center gap-1"><input type="checkbox" x-model="show.fib" @change="renderCharts()" class="accent-emerald-500"> Fib</label>
+            <label class="flex items-center gap-1"><input type="checkbox" x-model="show.smc" @change="renderCharts()" class="accent-emerald-500"> SMC</label>
+          </div>
+        </div>
+        <div id="chart-main" class="w-full" style="height: 460px;"></div>
+      </div>
+
+      <!-- RSI + MACD + StochRSI alt grafikleri -->
+      <div x-show="analysis" x-cloak class="grid md:grid-cols-3 gap-3">
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-3">
+          <div class="text-xs text-gray-500 mb-2">RSI (14)</div>
+          <div id="chart-rsi" style="height: 140px;"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-3">
+          <div class="text-xs text-gray-500 mb-2">MACD (12/26/9)</div>
+          <div id="chart-macd" style="height: 140px;"></div>
+        </div>
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-gray-500">StochRSI (14/14/3/3)</span>
+            <span class="text-[10px] font-mono"
+                  :class="analysis?.indicators_last?.stoch_k != null
+                    ? (analysis.indicators_last.stoch_k > 80 ? 'text-red-400'
+                      : analysis.indicators_last.stoch_k < 20 ? 'text-emerald-400'
+                      : 'text-gray-400') : 'text-gray-600'"
+                  x-text="analysis?.indicators_last?.stoch_k != null
+                    ? 'K=' + analysis.indicators_last.stoch_k.toFixed(1)
+                      + ' D=' + (analysis.indicators_last.stoch_d ?? 0).toFixed(1)
+                    : '—'">
+            </span>
+          </div>
+          <div id="chart-stoch" style="height: 140px;"></div>
+        </div>
+      </div>
+
+      <!-- Fibonacci + SMC özet kartları -->
+      <div x-show="analysis" x-cloak class="grid md:grid-cols-2 gap-3 mt-3">
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+          <div class="text-sm font-semibold mb-2 flex justify-between">
+            <span>Fibonacci</span>
+            <span x-show="analysis?.fibonacci" class="text-xs font-normal"
+                  :class="analysis?.fibonacci?.direction === 'up' ? 'text-emerald-400' : 'text-red-400'"
+                  x-text="analysis?.fibonacci ? 'Yön: ' + (analysis.fibonacci.direction === 'up' ? '↑ UP' : '↓ DOWN') : ''"></span>
+          </div>
+          <div x-show="!analysis?.fibonacci" class="text-xs text-gray-500">Yeterli veri yok.</div>
+          <div x-show="analysis?.fibonacci" x-cloak class="text-xs font-mono space-y-0.5">
+            <div class="text-gray-400">Swing High: <span class="text-emerald-400" x-text="fmt(analysis?.fibonacci?.swing_high, 4)"></span></div>
+            <div class="text-gray-400">Swing Low: <span class="text-red-400" x-text="fmt(analysis?.fibonacci?.swing_low, 4)"></span></div>
+            <div class="mt-2 pt-2 border-t border-gray-800 text-gray-400">Retracement:</div>
+            <template x-for="(v, k) in (analysis?.fibonacci?.retracement || {})" :key="k">
+              <div class="flex justify-between">
+                <span class="text-gray-500" x-text="k"></span>
+                <span x-text="fmt(v, 4)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+          <div class="text-sm font-semibold mb-2">SMC Yapıları</div>
+          <div class="text-xs space-y-1">
+            <div class="flex justify-between">
+              <span class="text-gray-400">BOS (Break of Structure)</span>
+              <span class="font-mono" x-text="(analysis?.smc?.bos?.length || 0) + ' adet'"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">CHoCH (Change of Character)</span>
+              <span class="font-mono" x-text="(analysis?.smc?.choch?.length || 0) + ' adet'"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Order Blocks</span>
+              <span class="font-mono" x-text="(analysis?.smc?.order_blocks?.length || 0) + ' adet'"></span>
+            </div>
+          </div>
+          <div x-show="analysis?.smc?.choch?.length > 0" x-cloak class="mt-3 pt-2 border-t border-gray-800">
+            <div class="text-xs text-gray-500 mb-1">Son CHoCH:</div>
+            <template x-for="c in (analysis?.smc?.choch || []).slice(-3)">
+              <div class="text-xs font-mono flex justify-between">
+                <span :class="c.direction === 'bullish' ? 'text-emerald-400' : 'text-red-400'"
+                      x-text="(c.direction === 'bullish' ? '↑ ' : '↓ ') + fmt(c.price, 4)"></span>
+                <span class="text-gray-500" x-text="new Date(c.ts).toLocaleString('tr-TR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Positions + Signals ========== -->
+      <div class="grid md:grid-cols-2 gap-3 mt-3">
+
+        <!-- POZİSYONLAR -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold">Pozisyonlar</h3>
+            <div class="flex gap-1">
+              <button @click="positionsFilter = 'open'; loadPositions()"
+                      :class="positionsFilter === 'open' ? 'tf-btn-active' : 'tf-btn'"
+                      class="px-2 py-1 rounded text-xs">Açık</button>
+              <button @click="positionsFilter = 'all'; loadPositions()"
+                      :class="positionsFilter === 'all' ? 'tf-btn-active' : 'tf-btn'"
+                      class="px-2 py-1 rounded text-xs">Tümü</button>
+              <button @click="paperTick()" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs" title="Paper pozisyonlarda SL/TP kontrolü">⚡ Tick</button>
+              <button @click="loadPositions()" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">↻</button>
+            </div>
+          </div>
+          <div x-show="positions.length === 0" class="text-xs text-gray-500 py-4 text-center">
+            Henüz pozisyon yok.
+          </div>
+          <div class="space-y-2 max-h-96 overflow-y-auto">
+            <template x-for="p in positions" :key="p.id">
+              <div class="border border-gray-800 rounded p-2 text-xs">
+                <div class="flex justify-between items-start mb-1">
+                  <div class="flex gap-2 items-center">
+                    <span class="font-mono font-semibold" x-text="p.symbol"></span>
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                          :class="p.side === 'long' ? 'badge-bull' : 'badge-bear'"
+                          x-text="p.side.toUpperCase()"></span>
+                    <span class="px-1.5 py-0.5 rounded text-[10px]"
+                          :class="p.mode === 'paper' ? 'bg-blue-900 text-blue-200' : 'bg-red-900 text-red-200'"
+                          x-text="p.mode"></span>
+                    <span class="px-1.5 py-0.5 rounded text-[10px]"
+                          :class="{
+                            'badge-warn': p.status === 'open',
+                            'badge-ok': p.status === 'closed_tp',
+                            'badge-err': p.status === 'closed_sl',
+                            'badge-neutral': !['open','closed_tp','closed_sl'].includes(p.status),
+                          }"
+                          x-text="p.status"></span>
+                  </div>
+                  <button x-show="p.status === 'open'" @click="closePosition(p.id)"
+                          class="text-[10px] bg-red-900 hover:bg-red-800 px-2 py-0.5 rounded">Kapat</button>
+                </div>
+                <div class="grid grid-cols-2 gap-x-3 font-mono text-[11px] text-gray-400">
+                  <div>Giriş: <span class="text-gray-200" x-text="fmt(p.entry_price, 4)"></span></div>
+                  <div>SL: <span class="text-red-400" x-text="fmt(p.stop_loss, 4)"></span></div>
+                  <div>Size: <span class="text-gray-200" x-text="fmt(p.size_usdt, 2) + '$ ×' + p.leverage"></span></div>
+                  <div>TP: <span class="text-emerald-400" x-text="fmt(p.take_profit, 4)"></span></div>
+                  <template x-if="p.pnl_usdt !== null">
+                    <div class="col-span-2 pt-1 border-t border-gray-800 mt-1 flex justify-between">
+                      <span>Kapanış: <span class="text-gray-200" x-text="fmt(p.close_price, 4)"></span></span>
+                      <span :class="p.pnl_usdt >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                            x-text="(p.pnl_usdt >= 0 ? '+' : '') + fmt(p.pnl_usdt, 2) + '$ (' + fmt(p.pnl_pct, 2) + '%)'"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- SİNYALLER -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold">Son Sinyaller</h3>
+            <div class="flex gap-1">
+              <button @click="evaluateAllStrategies()" :disabled="!selectedSymbol || evaluating"
+                      class="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 px-2 py-1 rounded text-xs"
+                      :title="selectedSymbol ? 'Tüm stratejileri bu sembol için değerlendir' : 'Önce sembol seç'">
+                <span x-show="!evaluating">🔍 Şimdi değerlendir</span>
+                <span x-show="evaluating">...</span>
+              </button>
+              <button @click="loadSignals()" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">↻</button>
+            </div>
+          </div>
+
+          <!-- Eval sonucu (anlık) -->
+          <div x-show="evalResults.length > 0" x-cloak class="mb-3 space-y-1">
+            <template x-for="r in evalResults" :key="r.strategy_id">
+              <div class="border rounded p-2 text-xs"
+                   :class="r.has_signal ? 'border-emerald-700 bg-emerald-950/30' : 'border-gray-700'">
+                <div class="flex justify-between items-center">
+                  <span class="font-semibold" x-text="r.strategy_id"></span>
+                  <span :class="r.has_signal ? 'text-emerald-400 font-bold' : 'text-gray-500'"
+                        x-text="r.has_signal ? '✓ SİNYAL' : '— yok'"></span>
+                </div>
+                <template x-if="r.has_signal && r.signal">
+                  <div class="mt-1 font-mono text-[11px] text-gray-300">
+                    <div>
+                      <span :class="r.signal.side === 'long' ? 'text-emerald-400' : 'text-red-400'"
+                            x-text="r.signal.side.toUpperCase()"></span>
+                      conf=<span x-text="r.signal.confidence.toFixed(1)"></span>
+                      entry=<span x-text="fmt(r.signal.entry_price, 4)"></span>
+                    </div>
+                    <div class="text-gray-500">
+                      SL=<span x-text="fmt(r.signal.stop_loss, 4)"></span>
+                      TP=<span x-text="fmt(r.signal.take_profit, 4)"></span>
+                    </div>
+                    <template x-for="reason in r.signal.reasoning">
+                      <div class="text-[10px] text-gray-500">· <span x-text="reason"></span></div>
+                    </template>
+                    <button @click="openFromSignal(r.signal)" class="mt-1 bg-emerald-700 hover:bg-emerald-600 px-2 py-0.5 rounded text-[10px]">
+                      Bu sinyalden pozisyon aç
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <!-- Kaydedilmiş sinyaller geçmişi -->
+          <div x-show="signals.length === 0 && evalResults.length === 0" class="text-xs text-gray-500 py-4 text-center">
+            Henüz kaydedilmiş sinyal yok.<br>
+            Yukarıdan "Şimdi değerlendir" ile strateji çalıştır.
+          </div>
+          <div class="space-y-2 max-h-72 overflow-y-auto">
+            <template x-for="s in signals" :key="s.id">
+              <div class="border border-gray-800 rounded p-2 text-xs">
+                <div class="flex justify-between">
+                  <span class="font-mono text-gray-300" x-text="s.symbol + ' ' + s.timeframe"></span>
+                  <span :class="s.side === 'long' ? 'text-emerald-400' : 'text-red-400'"
+                        x-text="s.side.toUpperCase() + ' @ ' + s.confidence.toFixed(0)"></span>
+                </div>
+                <div class="text-[10px] text-gray-500" x-text="s.strategy_id"></div>
+                <div class="text-[10px] text-gray-500" x-text="new Date(s.created_at).toLocaleString('tr-TR')"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- ============== SETTINGS TAB ============== -->
+    <!-- ========================================== -->
+    <section x-show="activeTab === 'settings'" x-cloak>
+      <div class="grid md:grid-cols-2 gap-6">
+
+        <div class="bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <h2 class="text-lg font-semibold mb-4">Bitget API Anahtarı</h2>
+          <p class="text-xs text-gray-500 mb-4">
+            Bitget'te API oluştururken <strong>sadece</strong> "Read" ve "Futures Trade" yetkilerini aç.
+            "Withdraw" yetkisini <strong>asla</strong> açma. IP whitelist önerilir.
+          </p>
+
+          <form @submit.prevent="saveCreds()" class="space-y-3">
+            <div>
+              <label class="text-xs text-gray-400">Etiket</label>
+              <input x-model="form.label" type="text" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-emerald-500" placeholder="default">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">API Key</label>
+              <input x-model="form.api_key" type="text" autocomplete="off" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500" required>
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">API Secret</label>
+              <input x-model="form.api_secret" type="password" autocomplete="new-password" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500" required>
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">Passphrase</label>
+              <input x-model="form.passphrase" type="password" autocomplete="new-password" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500">
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="sandbox" x-model="form.sandbox" type="checkbox" class="accent-emerald-500">
+              <label for="sandbox" class="text-xs text-gray-400">Sandbox modu</label>
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-sm font-medium">Kaydet</button>
+              <button type="button" @click="testConnection()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm font-medium">Bağlantıyı Test Et</button>
+            </div>
+          </form>
+
+          <div x-show="testResult" x-cloak class="mt-4 p-3 rounded text-sm border"
+               :class="testResult?.ok ? 'border-emerald-700 bg-emerald-950/50' : 'border-red-700 bg-red-950/50'">
+            <div class="font-semibold" x-text="testResult?.ok ? '✓ Bağlantı başarılı' : '✗ Bağlantı başarısız'"></div>
+            <div class="text-xs text-gray-300 mt-1" x-text="testResult?.message"></div>
+            <div x-show="testResult?.balances" class="mt-2 text-xs space-y-1">
+              <div>USDT Toplam: <span class="font-mono" x-text="testResult?.balances?.USDT_total?.toFixed(2)"></span></div>
+              <div>USDT Boşta: <span class="font-mono" x-text="testResult?.balances?.USDT_free?.toFixed(2)"></span></div>
+              <div>USDT Kullanımda: <span class="font-mono" x-text="testResult?.balances?.USDT_used?.toFixed(2)"></span></div>
+            </div>
+            <div x-show="testResult?.latency_ms" class="text-xs text-gray-500 mt-2">
+              Gecikme: <span x-text="testResult?.latency_ms"></span> ms
+            </div>
+          </div>
+
+          <!-- AI (Anthropic) API Key -->
+          <div class="mt-6 pt-6 border-t border-gray-800">
+            <h3 class="text-base font-semibold mb-2">AI (Anthropic) API Key</h3>
+            <p class="text-xs text-gray-500 mb-3">
+              Key DB'de şifreli saklanır. Boş bırakırsan değişmez.
+            </p>
+            <div class="grid md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-gray-400">Anthropic API Key</label>
+                <input type="password"
+                       :placeholder="riskState?.anthropic_api_key_masked || 'sk-ant-...'"
+                       x-model="anthropicKeyInput"
+                       class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+                <p class="text-[10px] text-gray-500 mt-1">
+                  <span x-show="riskState?.anthropic_api_key_masked">Mevcut: <span class="font-mono" x-text="riskState.anthropic_api_key_masked"></span>.</span>
+                </p>
+              </div>
+              <div class="flex items-end gap-2">
+                <button @click="saveAnthropicKey()" :disabled="!anthropicKeyInput"
+                        class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-2 rounded text-xs font-medium">
+                  Key'i Kaydet
+                </button>
+                <button @click="testAiConnection()"
+                        class="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded text-xs font-medium">
+                  Bağlantıyı Test Et
+                </button>
+                <button @click="clearAnthropicKey()"
+                        class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-xs font-medium">
+                  Temizle
+                </button>
+              </div>
+            </div>
+            <div x-show="aiConnectionTestResult" x-cloak class="mt-3 p-3 rounded text-sm border"
+                 :class="aiConnectionTestResult?.ok ? 'border-emerald-700 bg-emerald-950/50' : 'border-red-700 bg-red-950/50'">
+              <div class="font-semibold" x-text="aiConnectionTestResult?.ok ? '✓ AI bağlantısı başarılı' : '✗ AI bağlantısı başarısız'"></div>
+              <div class="text-xs text-gray-300 mt-1" x-text="aiConnectionTestResult?.message"></div>
+              <div x-show="aiConnectionTestResult?.latency_ms !== null" x-cloak class="text-xs text-gray-500 mt-1">
+                Gecikme: <span x-text="aiConnectionTestResult?.latency_ms"></span> ms
+              </div>
+            </div>
+            <div x-show="aiConnectionTestResult?.error === 'insufficient_credits'" x-cloak
+                 class="mt-3 bg-amber-950 border border-amber-700 text-amber-200 p-3 rounded text-xs">
+              <strong>⚠ Anthropic kredi yetersiz.</strong>
+              AI çalışması için Anthropic hesabında kredi yükleyip testi tekrar çalıştır.
+            </div>
+          </div>
+
+          <!-- OpenAI API Key -->
+          <div class="mt-6 pt-6 border-t border-gray-800">
+            <h3 class="text-base font-semibold mb-2">OpenAI API Key</h3>
+            <p class="text-xs text-gray-500 mb-3">
+              İleride OpenAI tabanlı AI doğrulama için saklanır. DB'de şifreli tutulur.
+            </p>
+            <div class="grid md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-gray-400">OpenAI API Key</label>
+                <input type="password"
+                       :placeholder="riskState?.openai_api_key_masked || 'sk-...'"
+                       x-model="openaiKeyInput"
+                       class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+                <p class="text-[10px] text-gray-500 mt-1">
+                  <span x-show="riskState?.openai_api_key_masked">Mevcut: <span class="font-mono" x-text="riskState.openai_api_key_masked"></span>.</span>
+                </p>
+              </div>
+              <div class="flex items-end gap-2">
+                <button @click="saveOpenaiKey()" :disabled="!openaiKeyInput"
+                        class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-2 rounded text-xs font-medium">
+                  Key'i Kaydet
+                </button>
+                <button @click="testOpenaiConnection()"
+                        class="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded text-xs font-medium">
+                  Bağlantıyı Test Et
+                </button>
+                <button @click="clearOpenaiKey()"
+                        class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-xs font-medium">
+                  Temizle
+                </button>
+              </div>
+            </div>
+            <div x-show="openaiConnectionTestResult" x-cloak class="mt-3 p-3 rounded text-sm border"
+                 :class="openaiConnectionTestResult?.ok ? 'border-emerald-700 bg-emerald-950/50' : 'border-red-700 bg-red-950/50'">
+              <div class="font-semibold" x-text="openaiConnectionTestResult?.ok ? '✓ OpenAI bağlantısı başarılı' : '✗ OpenAI bağlantısı başarısız'"></div>
+              <div class="text-xs text-gray-300 mt-1" x-text="openaiConnectionTestResult?.message"></div>
+            </div>
+            <div x-show="openaiConnectionTestResult?.error === 'insufficient_credits'" x-cloak
+                 class="mt-3 bg-amber-950 border border-amber-700 text-amber-200 p-3 rounded text-xs">
+              <strong>⚠ OpenAI kredi/quota yetersiz.</strong>
+              OpenAI billing/quota ayarlarını kontrol et.
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <h2 class="text-lg font-semibold mb-4">Kayıtlı Anahtarlar</h2>
+          <div x-show="credentials.length === 0" class="text-sm text-gray-500">Henüz kayıt yok.</div>
+          <div class="space-y-2">
+            <template x-for="c in credentials" :key="c.id">
+              <div class="border border-gray-800 rounded p-3 text-sm">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <div class="font-semibold">
+                      <span x-text="c.provider.toUpperCase()"></span>
+                      <span class="text-gray-500">·</span>
+                      <span x-text="c.label"></span>
+                      <span x-show="c.sandbox" class="badge-warn px-1.5 py-0.5 rounded text-xs ml-2">sandbox</span>
+                    </div>
+                    <div class="font-mono text-xs text-gray-400 mt-1">key: <span x-text="c.api_key_masked"></span></div>
+                    <div class="font-mono text-xs text-gray-400">secret: <span x-text="c.secret_masked"></span></div>
+                  </div>
+                  <div class="flex gap-1">
+                    <button @click="testConnection(c.id)" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">Test</button>
+                    <button @click="deleteCreds(c.id)" class="text-xs bg-red-900 hover:bg-red-800 px-2 py-1 rounded">Sil</button>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-600 mt-2" x-text="'Güncellendi: ' + new Date(c.updated_at).toLocaleString('tr-TR')"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =============== STRATEGIES =============== -->
+    <section x-show="activeTab === 'strategies'" x-cloak>
+      <div x-show="strategies.length === 0" class="text-gray-500 text-sm">
+        Stratejiler yükleniyor...
+      </div>
+
+      <div class="space-y-4">
+        <template x-for="s in strategies" :key="s.id">
+          <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+            <!-- Başlık satırı -->
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <div class="flex items-center gap-3">
+                  <h3 class="text-lg font-semibold" x-text="s.name"></h3>
+                  <span class="text-xs text-gray-500 font-mono" x-text="s.id"></span>
+                </div>
+                <p class="text-xs text-gray-400 mt-1" x-text="s.description"></p>
+              </div>
+              <!-- Enable/disable toggle -->
+              <label class="flex items-center gap-2 cursor-pointer">
+                <div class="relative">
+                  <input type="checkbox"
+                         :checked="configs[s.id]?.enabled || false"
+                         @change="updateConfig(s.id, { enabled: $event.target.checked })"
+                         class="sr-only peer">
+                  <div class="w-11 h-6 bg-gray-700 peer-checked:bg-emerald-600 rounded-full transition"></div>
+                  <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full transition peer-checked:translate-x-5"
+                       :class="configs[s.id]?.enabled ? 'translate-x-5' : ''"></div>
+                </div>
+                <span class="text-xs"
+                      :class="configs[s.id]?.enabled ? 'text-emerald-400' : 'text-gray-500'"
+                      x-text="configs[s.id]?.enabled ? 'Aktif' : 'Pasif'"></span>
+              </label>
+            </div>
+
+            <!-- Config alanları -->
+            <template x-if="configs[s.id]">
+              <div class="grid md:grid-cols-3 gap-4">
+
+                <!-- Genel ayar -->
+                <div class="bg-gray-950 rounded p-3 border border-gray-800">
+                  <div class="text-xs font-semibold text-gray-300 mb-2">Genel</div>
+                  <div class="space-y-2 text-xs">
+                    <div>
+                      <label class="text-gray-500">İşlem başına USDT</label>
+                      <input type="number" step="0.1" min="1"
+                             :value="configs[s.id].size_usdt"
+                             @change="updateConfig(s.id, { size_usdt: parseFloat($event.target.value) })"
+                             class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 font-mono">
+                    </div>
+                    <div>
+                      <label class="text-gray-500">Kaldıraç</label>
+                      <input type="number" min="1" max="125"
+                             :value="configs[s.id].leverage"
+                             @change="updateConfig(s.id, { leverage: parseInt($event.target.value) })"
+                             class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 font-mono">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Semboller + timeframe -->
+                <div class="bg-gray-950 rounded p-3 border border-gray-800">
+                  <div class="text-xs font-semibold text-gray-300 mb-2">Kapsam</div>
+                  <div class="space-y-2 text-xs">
+                    <div>
+                      <label class="text-gray-500">Semboller (virgülle)</label>
+                      <input type="text" placeholder="BTC/USDT:USDT, ETH/USDT:USDT"
+                             :value="(configs[s.id].symbols || []).join(', ')"
+                             @change="updateConfig(s.id, { symbols: $event.target.value.split(',').map(x => x.trim()).filter(Boolean) })"
+                             class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 font-mono">
+                    </div>
+                    <div>
+                      <label class="text-gray-500">Timeframes</label>
+                      <div class="flex flex-wrap gap-1 mt-1">
+                        <template x-for="tf in timeframes" :key="tf">
+                          <button @click="toggleTimeframe(s.id, tf)"
+                                  :class="(configs[s.id].timeframes || []).includes(tf) ? 'tf-btn-active' : 'tf-btn'"
+                                  class="px-2 py-1 rounded text-[11px] font-semibold"
+                                  x-text="tf"></button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Parametreler -->
+                <div class="bg-gray-950 rounded p-3 border border-gray-800">
+                  <div class="text-xs font-semibold text-gray-300 mb-2">Parametreler</div>
+                  <div class="space-y-1 text-xs max-h-40 overflow-y-auto">
+                    <template x-for="(v, k) in (configs[s.id].params || {})" :key="k">
+                      <div class="flex items-center justify-between gap-2">
+                        <label class="text-gray-500 font-mono text-[10px]" x-text="k"></label>
+                        <input type="number" step="0.1"
+                               :value="v"
+                               @change="updateConfig(s.id, { params: { [k]: isNaN(parseFloat($event.target.value)) ? $event.target.value : parseFloat($event.target.value) } })"
+                               class="w-24 bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-right font-mono text-[11px]">
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Test butonları -->
+            <div class="mt-3 pt-3 border-t border-gray-800 flex gap-2">
+              <button @click="evalStrategy(s.id)" :disabled="!selectedSymbol || evaluating"
+                      class="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 px-3 py-1.5 rounded text-xs"
+                      :title="selectedSymbol ? 'Seçili sembol ile değerlendir' : 'Önce Ana Sayfa\'dan sembol seç'">
+                🔍 Şimdi değerlendir
+                <span x-show="selectedSymbol" class="text-emerald-300 font-mono" x-text="'(' + selectedSymbol + ')'"></span>
+              </button>
+            </div>
+
+            <!-- Eval sonucu (bu strateji için) -->
+            <template x-if="strategyEvalResults[s.id]">
+              <div class="mt-2 p-2 rounded text-xs border"
+                   :class="strategyEvalResults[s.id].has_signal ? 'border-emerald-700 bg-emerald-950/30' : 'border-gray-700 bg-gray-950'">
+                <div class="flex justify-between">
+                  <span class="font-semibold"
+                        :class="strategyEvalResults[s.id].has_signal ? 'text-emerald-400' : 'text-gray-400'"
+                        x-text="strategyEvalResults[s.id].has_signal ? '✓ SİNYAL VAR' : '— sinyal yok'"></span>
+                  <span class="text-gray-500 font-mono text-[10px]"
+                        x-text="'trend=' + (strategyEvalResults[s.id].debug?.trend_smc || '—') + ' rsi=' + (strategyEvalResults[s.id].debug?.rsi?.toFixed(1) || '—')"></span>
+                </div>
+                <template x-if="strategyEvalResults[s.id].has_signal">
+                  <div class="mt-1 font-mono text-[11px]">
+                    <div>
+                      <span :class="strategyEvalResults[s.id].signal.side === 'long' ? 'text-emerald-400' : 'text-red-400'"
+                            x-text="strategyEvalResults[s.id].signal.side.toUpperCase()"></span>
+                      conf=<span x-text="strategyEvalResults[s.id].signal.confidence.toFixed(1)"></span>
+                      entry=<span x-text="fmt(strategyEvalResults[s.id].signal.entry_price, 4)"></span>
+                      SL=<span x-text="fmt(strategyEvalResults[s.id].signal.stop_loss, 4)"></span>
+                      TP=<span x-text="fmt(strategyEvalResults[s.id].signal.take_profit, 4)"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- =============== RISK & AI =============== -->
+    <section x-show="activeTab === 'risk'" x-cloak>
+      <div class="space-y-4">
+
+        <!-- Scalp Otomatik Alsat — Hızlı Kurulum -->
+        <div class="bg-gray-900 rounded-lg border border-gray-700 p-4">
+          <h3 class="text-sm font-semibold text-gray-300 mb-3">Scalp Otomatik Alsat — Kurulum Durumu</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div class="flex items-center gap-2 px-3 py-2 rounded"
+                 :class="riskStatus?.bitget_connected ? 'bg-emerald-950 border border-emerald-800' : 'bg-red-950 border border-red-800'">
+              <span x-text="riskStatus?.bitget_connected ? '✓' : '✗'" class="font-bold"></span>
+              <span>Bitget API</span>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-2 rounded"
+                 :class="riskState?.anthropic_api_key_masked ? 'bg-emerald-950 border border-emerald-800' : 'bg-yellow-950 border border-yellow-800'">
+              <span x-text="riskState?.anthropic_api_key_masked ? '✓' : '—'" class="font-bold"></span>
+              <span>AI Key <span class="text-gray-500">(opsiyonel)</span></span>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-2 rounded"
+                 :class="riskState?.scheduler_enabled ? 'bg-emerald-950 border border-emerald-800' : 'bg-red-950 border border-red-800'">
+              <span x-text="riskState?.scheduler_enabled ? '✓' : '✗'" class="font-bold"></span>
+              <span>Scheduler <span class="font-mono" x-text="riskState?.scheduler_enabled ? riskState?.scheduler_interval_seconds + 'sn' : 'Kapalı'"></span></span>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-2 rounded"
+                 :class="(strategies || []).some(s => s.enabled) ? 'bg-emerald-950 border border-emerald-800' : 'bg-red-950 border border-red-800'">
+              <span x-text="(strategies || []).some(s => s.enabled) ? '✓' : '✗'" class="font-bold"></span>
+              <span>Aktif Strateji</span>
+            </div>
+          </div>
+          <div x-show="!riskStatus?.bitget_connected || !(strategies || []).some(s => s.enabled) || !riskState?.scheduler_enabled" x-cloak
+               class="mt-3 text-[11px] text-gray-400 space-y-1">
+            <div x-show="!riskStatus?.bitget_connected" x-cloak class="text-red-400">• Ayarlar sekmesinden Bitget API bağla</div>
+            <div x-show="!(strategies || []).some(s => s.enabled)" x-cloak class="text-red-400">• Stratejiler sekmesinden bir strateji aktif et</div>
+            <div x-show="!riskState?.scheduler_enabled" x-cloak class="text-red-400">• Aşağıdan Scheduler'ı aç ve tick aralığını ayarla</div>
+          </div>
+        </div>
+
+        <!-- Canlı durum -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold">Canlı Risk Durumu</h3>
+            <button @click="loadRiskStatus()" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-xs">↻ Yenile</button>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-gray-950 rounded p-3 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Mod</div>
+              <div class="text-lg font-bold mt-1 font-mono"
+                   :class="riskStatus?.trading_mode === 'live' ? 'text-red-400' : 'text-blue-400'"
+                   x-text="(riskStatus?.trading_mode || '—').toUpperCase()"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-3 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Günlük PnL</div>
+              <div class="text-lg font-bold mt-1 font-mono"
+                   :class="(riskStatus?.daily_pnl_usdt || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                   x-text="((riskStatus?.daily_pnl_usdt || 0) >= 0 ? '+' : '') + fmt(riskStatus?.daily_pnl_usdt, 2) + '$'"></div>
+              <div class="text-[10px] text-gray-500 mt-0.5">Limit: <span x-text="fmt(riskStatus?.daily_loss_limit_usdt, 0) + '$'"></span></div>
+            </div>
+            <div class="bg-gray-950 rounded p-3 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Açık Pozisyon</div>
+              <div class="text-lg font-bold mt-1 font-mono"
+                   x-text="(riskStatus?.open_positions_count || 0) + ' / ' + (riskStatus?.max_open_positions || 0)"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-3 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Circuit Breaker</div>
+              <div class="text-sm font-bold mt-1"
+                   :class="riskStatus?.circuit_breaker_tripped ? 'text-red-400' : 'text-emerald-400'"
+                   x-text="riskStatus?.circuit_breaker_tripped ? '⛔ KİLİTLİ' : '✓ AÇIK'"></div>
+              <button x-show="riskStatus?.circuit_breaker_tripped" x-cloak
+                      @click="resetBreaker()"
+                      class="mt-1 text-[10px] bg-red-900 hover:bg-red-800 px-2 py-0.5 rounded">
+                Manuel Reset
+              </button>
+            </div>
+          </div>
+          <div x-show="riskStatus?.circuit_breaker_tripped" x-cloak
+               class="mt-3 bg-red-950 border border-red-800 text-red-200 p-3 rounded text-xs">
+            <strong>⚠</strong> Günlük zarar limiti aşıldı. Yeni pozisyon açma kilitlendi.
+            Bakiyeni ve stratejini gözden geçir, hazırsan manuel reset yap.
+          </div>
+        </div>
+
+        <!-- Risk Ayarları -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+          <h3 class="text-lg font-semibold mb-3">Risk Limitleri</h3>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs text-gray-400">Max açık pozisyon</label>
+              <input type="number" min="1" max="100"
+                     :value="riskState?.max_open_positions"
+                     @change="updateRiskState({ max_open_positions: parseInt($event.target.value) })"
+                     class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+              <p class="text-[10px] text-gray-500 mt-1">Aynı anda açık olabilecek max pozisyon sayısı.</p>
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">Günlük zarar limiti (USDT)</label>
+              <input type="number" step="10" min="1"
+                     :value="riskState?.daily_loss_limit_usdt"
+                     @change="updateRiskState({ daily_loss_limit_usdt: parseFloat($event.target.value) })"
+                     class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+              <p class="text-[10px] text-gray-500 mt-1">Bugünkü kümülatif PnL bu eksinin altına inerse yeni açma yasaklanır.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Doğrulama -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <h3 class="text-lg font-semibold">AI Sinyal Doğrulama</h3>
+              <p class="text-xs text-gray-500 mt-1">
+                Sinyaller Claude API'ye gönderilir, dönen skor eşiğin altındaysa reddedilir.
+                API key'i aşağıya gir (kapalıysa AI atlanır, sinyaller doğrudan onaylanır).
+              </p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer shrink-0">
+              <div class="relative">
+                <input type="checkbox"
+                       :checked="riskState?.ai_enabled"
+                       @change="updateRiskState({ ai_enabled: $event.target.checked })"
+                       class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-700 peer-checked:bg-emerald-600 rounded-full transition"></div>
+                <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full transition"
+                     :class="riskState?.ai_enabled ? 'translate-x-5' : ''"></div>
+              </div>
+              <span class="text-xs"
+                    :class="riskState?.ai_enabled ? 'text-emerald-400' : 'text-gray-500'"
+                    x-text="riskState?.ai_enabled ? 'Aktif' : 'Pasif'"></span>
+            </label>
+          </div>
+
+          <!-- Anthropic API Key -->
+          <div class="bg-gray-950 rounded-lg border border-gray-700 p-4 mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-gray-300">Anthropic (Claude) API Key</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded"
+                    :class="riskState?.anthropic_api_key_masked ? 'bg-emerald-900 text-emerald-300' : 'bg-gray-800 text-gray-500'"
+                    x-text="riskState?.anthropic_api_key_masked ? '✓ ' + riskState.anthropic_api_key_masked : 'Girilmemiş'"></span>
+            </div>
+            <div class="flex gap-2">
+              <input type="password"
+                     placeholder="sk-ant-api03-..."
+                     x-model="anthropicKeyInput"
+                     class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-emerald-500">
+              <button @click="saveAnthropicKey()" :disabled="!anthropicKeyInput"
+                      class="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-2 rounded text-xs font-medium whitespace-nowrap">
+                Kaydet
+              </button>
+              <button @click="testAiConnection()"
+                      class="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded text-xs font-medium whitespace-nowrap">
+                Test Et
+              </button>
+              <button x-show="riskState?.anthropic_api_key_masked" x-cloak
+                      @click="clearAnthropicKey()"
+                      class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-xs font-medium whitespace-nowrap">
+                Sil
+              </button>
+            </div>
+            <div x-show="aiConnectionTestResult" x-cloak class="mt-2 p-2 rounded text-xs border"
+                 :class="aiConnectionTestResult?.ok ? 'border-emerald-700 bg-emerald-950/50 text-emerald-300' : 'border-red-700 bg-red-950/50 text-red-300'">
+              <span x-text="aiConnectionTestResult?.ok ? '✓ Bağlantı başarılı' : '✗ ' + aiConnectionTestResult?.message"></span>
+              <span x-show="aiConnectionTestResult?.latency_ms" x-cloak class="text-gray-400 ml-2"
+                    x-text="aiConnectionTestResult?.latency_ms + ' ms'"></span>
+            </div>
+            <div x-show="aiConnectionTestResult?.error === 'insufficient_credits'" x-cloak
+                 class="mt-2 bg-amber-950 border border-amber-700 text-amber-200 p-2 rounded text-xs">
+              Anthropic hesabında kredi yetersiz. <a href="https://console.anthropic.com/" target="_blank" class="underline">Kredi yükle</a>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs text-gray-400">
+                Min AI onay skoru: <span class="text-emerald-400 font-mono" x-text="riskState?.ai_min_confidence?.toFixed(0) || '65'"></span>/100
+              </label>
+              <input type="range" min="0" max="100" step="5"
+                     :value="riskState?.ai_min_confidence || 65"
+                     @change="updateRiskState({ ai_min_confidence: parseFloat($event.target.value) })"
+                     class="w-full accent-emerald-500">
+              <p class="text-[10px] text-gray-500 mt-1">AI bu eşiğin altında skor verirse sinyal reddedilir.</p>
+            </div>
+            <div class="flex items-end">
+              <button @click="testAi()" :disabled="!riskState?.ai_enabled"
+                      class="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 px-3 py-2 rounded text-xs">
+                🤖 Dummy sinyal ile test et
+              </button>
+            </div>
+          </div>
+
+          <div x-show="aiTestResult" x-cloak class="mt-3 p-3 rounded text-sm border"
+               :class="aiTestResult?.ok ? 'border-emerald-700 bg-emerald-950/50' : 'border-red-700 bg-red-950/50'">
+            <div class="flex justify-between items-start">
+              <span class="font-semibold" x-text="aiTestResult?.ok ? '✓ AI yanıt verdi' : '✗ AI hatası'"></span>
+              <span x-show="aiTestResult?.confidence !== null" x-cloak class="font-mono text-xs"
+                    x-text="'skor: ' + aiTestResult?.confidence?.toFixed(1) + '/100'"></span>
+            </div>
+            <div class="text-xs text-gray-300 mt-1" x-text="aiTestResult?.notes"></div>
+            <div x-show="aiTestResult?.error" x-cloak class="text-xs text-red-400 mt-1" x-text="'Hata: ' + aiTestResult?.error"></div>
+          </div>
+        </div>
+
+        <!-- Scheduler -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <h3 class="text-lg font-semibold">Otomatik Scheduler</h3>
+              <p class="text-xs text-gray-500 mt-1">
+                Aktif olduğunda arka planda periyodik olarak: (1) tüm aktif stratejileri sembol×timeframe üzerinde değerlendirir, (2) sinyal üretirse AI + risk süzgecinden geçirip paper pozisyon açar, (3) açık paper pozisyonlarda SL/TP kontrol eder.
+              </p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer shrink-0">
+              <div class="relative">
+                <input type="checkbox"
+                       :checked="riskState?.scheduler_enabled"
+                       @change="updateRiskState({ scheduler_enabled: $event.target.checked })"
+                       class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-700 peer-checked:bg-emerald-600 rounded-full transition"></div>
+                <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full transition"
+                     :class="riskState?.scheduler_enabled ? 'translate-x-5' : ''"></div>
+              </div>
+              <span class="text-xs"
+                    :class="riskState?.scheduler_enabled ? 'text-emerald-400' : 'text-gray-500'"
+                    x-text="riskState?.scheduler_enabled ? 'Çalışıyor' : 'Durdu'"></span>
+            </label>
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-400">
+              Tick aralığı (saniye): <span class="text-emerald-400 font-mono" x-text="riskState?.scheduler_interval_seconds || 60"></span>
+            </label>
+            <input type="range" min="2" max="600" step="1"
+                   :value="riskState?.scheduler_interval_seconds || 60"
+                   @change="updateRiskState({ scheduler_interval_seconds: parseInt($event.target.value) })"
+                   class="w-full accent-emerald-500">
+            <div class="flex justify-between text-[10px] text-gray-500">
+              <span>2sn (scalp)</span>
+              <span>60sn (normal)</span>
+              <span>10dk (muhafazakar)</span>
+            </div>
+          </div>
+
+          <!-- Live auto-trading güvenlik toggle -->
+          <div class="mt-4 pt-4 border-t border-gray-800">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1">
+                <div class="text-sm font-semibold text-red-300">
+                  🔴 Canlı Auto-Trading
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                  Kapalıyken scheduler canlı modda <strong>pozisyon AÇMAZ</strong>, sadece sinyal kaydeder ve Telegram bildirimi gönderir.
+                  Açarsan gerçek para ile emir gönderilir — küçük bakiye ve düşük kaldıraçla başla.
+                </p>
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer shrink-0">
+                <div class="relative">
+                  <input type="checkbox"
+                         :checked="riskState?.live_auto_trading_enabled"
+                         @change="confirmLiveAuto($event)"
+                         class="sr-only peer">
+                  <div class="w-11 h-6 bg-gray-700 peer-checked:bg-red-600 rounded-full transition"></div>
+                  <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full transition"
+                       :class="riskState?.live_auto_trading_enabled ? 'translate-x-5' : ''"></div>
+                </div>
+                <span class="text-xs"
+                      :class="riskState?.live_auto_trading_enabled ? 'text-red-400 font-bold' : 'text-gray-500'"
+                      x-text="riskState?.live_auto_trading_enabled ? 'AKTİF' : 'Pasif'"></span>
+              </label>
+            </div>
+            <div x-show="riskState?.live_auto_trading_enabled && riskState?.trading_mode !== 'live'" x-cloak
+                 class="mt-2 bg-blue-950 border border-blue-800 text-blue-200 p-2 rounded text-xs">
+              <strong>ℹ</strong> Flag AKTİF ama trading modu PAPER. Live etki için header'daki mod butonundan LIVE'a geçmelisin.
+            </div>
+            <div x-show="riskState?.live_auto_trading_enabled && riskState?.trading_mode === 'live' && riskState?.scheduler_enabled" x-cloak
+                 class="mt-2 bg-red-950 border border-red-800 text-red-200 p-2 rounded text-xs">
+              <strong>⚠ DİKKAT:</strong> Scheduler + LIVE mod + auto-trading AKTİF. Gerçek emirler gönderilecek.
+            </div>
+          </div>
+
+          <div class="mt-2 bg-yellow-950 border border-yellow-800 text-yellow-200 p-2 rounded text-xs">
+            <strong>ℹ</strong> Scheduler paper modda her zaman pozisyon açar. Live modda yukarıdaki güvenlik flag'i gerekli.
+          </div>
+        </div>
+
+        <!-- Telegram -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-5">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <h3 class="text-lg font-semibold">Telegram Bildirimleri</h3>
+              <p class="text-xs text-gray-500 mt-1">
+                Yeni sinyal, pozisyon açma/kapama, circuit breaker olaylarında Telegram üzerinden bildirim.
+                @BotFather ile bot oluştur, token al. Chat ID için @userinfobot kullan.
+              </p>
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer shrink-0">
+              <div class="relative">
+                <input type="checkbox"
+                       :checked="riskState?.telegram_enabled"
+                       @change="updateRiskState({ telegram_enabled: $event.target.checked })"
+                       class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-700 peer-checked:bg-emerald-600 rounded-full transition"></div>
+                <div class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full transition"
+                     :class="riskState?.telegram_enabled ? 'translate-x-5' : ''"></div>
+              </div>
+              <span class="text-xs"
+                    :class="riskState?.telegram_enabled ? 'text-emerald-400' : 'text-gray-500'"
+                    x-text="riskState?.telegram_enabled ? 'Aktif' : 'Pasif'"></span>
+            </label>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-gray-400">Bot Token</label>
+              <input type="text" :placeholder="riskState?.telegram_bot_token_masked || '1234567890:ABC...'"
+                     x-model="telegramTokenInput"
+                     class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+              <p class="text-[10px] text-gray-500 mt-1">
+                <span x-show="riskState?.telegram_bot_token_masked">Mevcut: <span class="font-mono" x-text="riskState.telegram_bot_token_masked"></span>.</span>
+                Boş bırakırsan değişmez.
+              </p>
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">Chat ID</label>
+              <input type="text" placeholder="123456789"
+                     :value="riskState?.telegram_chat_id"
+                     @change="updateRiskState({ telegram_chat_id: $event.target.value })"
+                     class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+            </div>
+          </div>
+
+          <div class="mt-3 flex gap-2">
+            <button @click="saveTelegramToken()" :disabled="!telegramTokenInput"
+                    class="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 px-3 py-2 rounded text-xs">
+              Token'ı Kaydet
+            </button>
+            <button @click="testTelegram()"
+                    class="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-xs">
+              Test Mesajı Gönder
+            </button>
+          </div>
+
+          <div x-show="telegramTestResult" x-cloak class="mt-3 p-3 rounded text-sm border"
+               :class="telegramTestResult?.ok ? 'border-emerald-700 bg-emerald-950/50' : 'border-red-700 bg-red-950/50'">
+            <div class="font-semibold" x-text="telegramTestResult?.ok ? '✓ Gönderildi' : '✗ Başarısız'"></div>
+            <div class="text-xs text-gray-300 mt-1" x-text="telegramTestResult?.message"></div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =============== LOGS =============== -->
+    <section x-show="activeTab === 'logs'" x-cloak>
+      <div class="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-3">
+        <div class="flex flex-wrap gap-2 items-center">
+          <!-- Dosya seçici -->
+          <div class="flex gap-1">
+            <button @click="logs.which = 'alfapro'; loadLogs()"
+                    :class="logs.which === 'alfapro' ? 'tf-btn-active' : 'tf-btn'"
+                    class="px-3 py-1.5 rounded text-xs">alfapro.log</button>
+            <button @click="logs.which = 'trades'; loadLogs()"
+                    :class="logs.which === 'trades' ? 'tf-btn-active' : 'tf-btn'"
+                    class="px-3 py-1.5 rounded text-xs">trades.log</button>
+          </div>
+
+          <!-- Seviye -->
+          <select x-model="logs.level" @change="loadLogs()"
+                  class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs">
+            <option value="">Tüm seviyeler</option>
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+
+          <!-- Arama -->
+          <input type="text" x-model.debounce.400ms="logs.contains" @input="loadLogs()"
+                 placeholder="İçerikte ara..."
+                 class="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-xs w-48">
+
+          <!-- Limit -->
+          <select x-model="logs.limit" @change="loadLogs()"
+                  class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs">
+            <option value="50">Son 50</option>
+            <option value="200">Son 200</option>
+            <option value="500">Son 500</option>
+            <option value="1000">Son 1000</option>
+          </select>
+
+          <!-- Yenile -->
+          <button @click="loadLogs()" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">↻</button>
+
+          <!-- Oto yenile -->
+          <label class="flex items-center gap-2 text-xs text-gray-400 ml-auto">
+            <input type="checkbox" x-model="logs.autoRefresh" @change="toggleLogsAutoRefresh()" class="accent-emerald-500">
+            Oto yenile (10sn)
+          </label>
+        </div>
+
+        <!-- Meta bilgi -->
+        <div x-show="logs.filesInfo" x-cloak class="mt-2 text-[10px] text-gray-500 font-mono">
+          <template x-for="(info, name) in logs.filesInfo" :key="name">
+            <span class="mr-4">
+              <span x-text="name"></span>:
+              <span x-text="info.exists ? 'var' : 'yok'"
+                    :class="info.exists ? 'text-emerald-400' : 'text-red-400'"></span>
+              · <span x-text="((info.size_bytes || 0) / 1024).toFixed(1) + ' KB'"></span>
+            </span>
+          </template>
+        </div>
+      </div>
+
+      <!-- Log satırları -->
+      <div class="bg-gray-950 rounded-lg border border-gray-800 p-3 font-mono text-[11px] leading-relaxed max-h-[600px] overflow-y-auto">
+        <div x-show="logs.lines.length === 0" class="text-gray-500 text-center py-8">
+          <template x-if="logs.loading">
+            <span>Yükleniyor...</span>
+          </template>
+          <template x-if="!logs.loading">
+            <span>Log bulunamadı. Dosya henüz oluşmamış veya filtreye uyan satır yok.</span>
+          </template>
+        </div>
+        <template x-for="(line, i) in logs.lines" :key="i">
+          <div class="py-0.5 border-b border-gray-900 last:border-0">
+            <span class="text-gray-500" x-text="line.ts"></span>
+            <span class="ml-2 font-bold inline-block w-16"
+                  :class="{
+                    'text-gray-400': line.level === 'DEBUG',
+                    'text-sky-400': line.level === 'INFO',
+                    'text-yellow-400': line.level === 'WARNING',
+                    'text-red-400': line.level === 'ERROR' || line.level === 'CRITICAL',
+                  }"
+                  x-text="line.level"></span>
+            <span class="text-purple-400 text-[10px]" x-text="line.source"></span>
+            <span class="ml-2 text-gray-200" x-text="line.message"></span>
+          </div>
+        </template>
+      </div>
+
+      <!-- İşlem İstatistikleri -->
+      <div class="mt-4 bg-gray-900 rounded-lg border border-gray-800 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-semibold">İşlem İstatistikleri</h3>
+          <div class="flex gap-1">
+            <button @click="stats.mode = 'paper'; loadStats()"
+                    :class="stats.mode === 'paper' ? 'tf-btn-active' : 'tf-btn'"
+                    class="px-3 py-1 rounded text-xs">Paper</button>
+            <button @click="stats.mode = 'live'; loadStats()"
+                    :class="stats.mode === 'live' ? 'tf-btn-active' : 'tf-btn'"
+                    class="px-3 py-1 rounded text-xs">Live</button>
+            <button @click="stats.mode = ''; loadStats()"
+                    :class="stats.mode === '' ? 'tf-btn-active' : 'tf-btn'"
+                    class="px-3 py-1 rounded text-xs">Tümü</button>
+            <button @click="loadStats()" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">↻</button>
+          </div>
+        </div>
+
+        <div x-show="!stats.data || stats.data.total === 0" class="text-xs text-gray-500 py-4 text-center">
+          Henüz kapanmış işlem yok.
+        </div>
+
+        <div x-show="stats.data && stats.data.total > 0" x-cloak>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Toplam</div>
+              <div class="text-lg font-bold font-mono" x-text="stats.data?.total"></div>
+              <div class="text-[10px] text-gray-500 mt-0.5">
+                W/L: <span x-text="(stats.data?.wins || 0) + '/' + (stats.data?.losses || 0)"></span>
+              </div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Win Rate</div>
+              <div class="text-lg font-bold font-mono"
+                   :class="(stats.data?.win_rate || 0) >= 50 ? 'text-emerald-400' : 'text-red-400'"
+                   x-text="fmt(stats.data?.win_rate, 1) + '%'"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Net PnL</div>
+              <div class="text-lg font-bold font-mono"
+                   :class="(stats.data?.net_pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                   x-text="((stats.data?.net_pnl || 0) >= 0 ? '+' : '') + fmt(stats.data?.net_pnl, 2) + '$'"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Profit Factor</div>
+              <div class="text-lg font-bold font-mono"
+                   :class="(stats.data?.profit_factor || 0) >= 1 ? 'text-emerald-400' : 'text-red-400'"
+                   x-text="fmt(stats.data?.profit_factor, 2)"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Avg Win</div>
+              <div class="text-sm font-mono text-emerald-400"
+                   x-text="'+' + fmt(stats.data?.avg_win, 2) + '$'"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Avg Loss</div>
+              <div class="text-sm font-mono text-red-400"
+                   x-text="fmt(stats.data?.avg_loss, 2) + '$'"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Largest Win</div>
+              <div class="text-sm font-mono text-emerald-400"
+                   x-text="'+' + fmt(stats.data?.largest_win, 2) + '$'"></div>
+            </div>
+            <div class="bg-gray-950 rounded p-2 border border-gray-800">
+              <div class="text-[10px] text-gray-500 uppercase">Largest Loss</div>
+              <div class="text-sm font-mono text-red-400"
+                   x-text="fmt(stats.data?.largest_loss, 2) + '$'"></div>
+            </div>
+          </div>
+
+          <!-- Strateji breakdown -->
+          <div x-show="stats.data?.by_strategy && Object.keys(stats.data.by_strategy).length > 0" x-cloak>
+            <div class="text-xs font-semibold text-gray-400 mb-2">Strateji Bazında</div>
+            <div class="space-y-1">
+              <template x-for="(b, sid) in (stats.data?.by_strategy || {})" :key="sid">
+                <div class="bg-gray-950 rounded p-2 border border-gray-800 flex items-center justify-between text-xs">
+                  <div class="font-mono" x-text="sid"></div>
+                  <div class="flex gap-4 font-mono text-[11px]">
+                    <span class="text-gray-400">n=<span class="text-gray-200" x-text="b.total"></span></span>
+                    <span class="text-gray-400">WR=<span :class="b.win_rate >= 50 ? 'text-emerald-400' : 'text-red-400'" x-text="b.win_rate + '%'"></span></span>
+                    <span :class="b.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                          x-text="(b.net_pnl >= 0 ? '+' : '') + b.net_pnl.toFixed(2) + '$'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Toast -->
+    <div x-show="toast.show" x-cloak x-transition
+         class="fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg text-sm z-50"
+         :class="toast.kind === 'error' ? 'bg-red-600' : 'bg-emerald-600'">
+      <span x-text="toast.msg"></span>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- ============== Alpine Component ================== -->
+  <!-- ================================================== -->
+  <script>
+    function app() {
+      return {
+        // ---- State: genel ----
+        wsConn: null,          // WebSocket instance
+        wsStatus: 'off',       // 'off' | 'connecting' | 'live' | 'error'
+        _wsRetry: 0,
+        activeTab: 'dashboard',
+        tabs: [
+          { id: 'dashboard',  label: 'Ana Sayfa' },
+          { id: 'settings',   label: 'Ayarlar' },
+          { id: 'strategies', label: 'Stratejiler' },
+          { id: 'risk',       label: 'Risk & AI' },
+          { id: 'logs',       label: 'Loglar' },
+        ],
+        health: { ok: false, version: null, serial: null, phase: null },
+        toast: { show: false, msg: '', kind: 'ok' },
+
+        // ---- State: credentials (Settings tab) ----
+        credentials: [],
+        form: { label: 'default', api_key: '', api_secret: '', passphrase: '', sandbox: false },
+        testResult: null,
+
+        // ---- State: market (Dashboard tab) ----
+        symbols: [],
+        symbolsLoading: false,
+        symbolSearch: '',
+        selectedSymbol: null,
+        timeframes: ['1m', '5m', '15m', '1h', '4h', '1d'],
+        timeframe: '15m',
+        analysis: null,
+        loading: false,
+        error: null,
+        autoRefresh: false,
+        autoRefreshTimer: null,
+        show: { emas: true, bbands: true, fib: true, smc: true },
+
+        // ---- State: Trading (Faz 3) ----
+        tradingMode: { mode: 'paper', open_paper_positions: 0, open_live_positions: 0 },
+        modeDialog: { show: false, confirmLive: false },
+        positions: [],
+        positionsFilter: 'open',   // 'open' | 'all'
+        signals: [],
+        strategies: [],
+        configs: {},               // strategy_id → config object
+        evaluating: false,
+        evalResults: [],           // Dashboard'daki "Şimdi değerlendir" sonuçları
+        strategyEvalResults: {},   // Strategies tab: strategy_id → result
+
+        // ---- State: Risk & AI (Faz 4) ----
+        riskState: null,           // AppStateOut
+        riskStatus: null,          // RiskStatusOut (günlük PnL, açık poz)
+        aiTestResult: null,
+        aiConnectionTestResult: null,
+        openaiConnectionTestResult: null,
+        telegramTestResult: null,
+        telegramTokenInput: '',
+        anthropicKeyInput: '',
+        openaiKeyInput: '',
+
+        // ---- State: Logs + Stats (Faz 5) ----
+        logs: {
+          which: 'alfapro',
+          level: '',
+          contains: '',
+          limit: '200',
+          lines: [],
+          filesInfo: null,
+          loading: false,
+          autoRefresh: false,
+          timer: null,
+        },
+        stats: { mode: 'paper', data: null },
+
+        // ---- Chart objeleri ----
+        chartMain: null,
+        chartRsi: null,
+        chartMacd: null,
+        chartStoch: null,
+        series: {},
+        fibLines: [],
+
+        // ========== init ==========
+
+        // ========== WebSocket ==========
+
+        _wsConnect() {
+          this.wsStatus = 'connecting';
+          const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+          const ws = new WebSocket(`${proto}://${location.host}/api/ws`);
+          this.wsConn = ws;
+
+          ws.onopen = () => {
+            this.wsStatus = 'live';
+            this._wsRetry = 0;
+          };
+
+          ws.onmessage = (e) => {
+            try {
+              const d = JSON.parse(e.data);
+              if (d.type === 'snapshot') {
+                this.positions = d.positions;
+                this.signals  = d.signals;
+                if (d.trading_mode) this.tradingMode.mode = d.trading_mode;
+              }
+            } catch {}
+          };
+
+          ws.onerror = () => { this.wsStatus = 'error'; };
+
+          ws.onclose = () => {
+            this.wsStatus = 'error';
+            this.wsConn = null;
+            // Exponential backoff: 2s → 4s → 8s … max 30s
+            const delay = Math.min(2000 * Math.pow(2, this._wsRetry), 30000);
+            this._wsRetry++;
+            setTimeout(() => this._wsConnect(), delay);
+          };
+        },
+
+        // ========== init ==========
+
+        async init() {
+          await this.loadHealth();
+          await this.loadCredentials();
+          await this.loadMode();
+          this._wsConnect();
+          setInterval(() => this.loadHealth(), 30000);
+
+          this.$watch('activeTab', (v) => {
+            if (v === 'dashboard' && this.symbols.length === 0) this.loadSymbols();
+            if (v === 'dashboard' && this.selectedSymbol && !this.analysis) this.loadAnalysis();
+            if (v === 'dashboard') { this.loadPositions(); this.loadSignals(); this.loadMode(); }
+            if (v === 'strategies' && this.strategies.length === 0) this.loadStrategies();
+            if (v === 'risk') { this.loadRiskState(); this.loadRiskStatus(); if (this.strategies.length === 0) this.loadStrategies(); }
+            if (v === 'logs') { this.loadLogsFilesInfo(); this.loadLogs(); this.loadStats(); }
+          });
+
+          try {
+            const s = localStorage.getItem('apb_symbol');
+            const tf = localStorage.getItem('apb_tf');
+            if (s) this.selectedSymbol = s;
+            if (tf) this.timeframe = tf;
+          } catch {}
+
+          window.addEventListener('resize', () => this.resizeCharts());
+
+          if (this.activeTab === 'dashboard') {
+            await this.loadSymbols();
+            if (this.selectedSymbol) await this.loadAnalysis();
+            await this.loadPositions();
+            await this.loadSignals();
+          }
+        },
+
+        // ========== utils ==========
+
+        showToast(msg, kind = 'ok') {
+          this.toast = { show: true, msg, kind };
+          setTimeout(() => (this.toast.show = false), 3500);
+        },
+
+        fmt(v, decimals = 2) {
+          if (v === null || v === undefined || Number.isNaN(v)) return '—';
+          const abs = Math.abs(v);
+          if (abs >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+          return v.toFixed(decimals);
+        },
+
+        rsiColor(v) {
+          if (v === null || v === undefined) return '';
+          if (v >= 70) return 'text-red-400';
+          if (v <= 30) return 'text-emerald-400';
+          return '';
+        },
+
+        get filteredSymbols() {
+          const q = this.symbolSearch.trim().toUpperCase();
+          if (!q) return this.symbols.slice(0, 100);
+          return this.symbols.filter(s => s.symbol.toUpperCase().includes(q)).slice(0, 100);
+        },
+
+        // ========== health + credentials ==========
+
+        async loadHealth() {
+          try {
+            const r = await fetch('/api/health');
+            this.health = await r.json();
+          } catch {
+            this.health = { ok: false };
+          }
+        },
+
+        async loadCredentials() {
+          try {
+            const r = await fetch('/api/settings/credentials');
+            this.credentials = await r.json();
+          } catch (e) { this.showToast('Kimlik bilgileri yüklenemedi', 'error'); }
+        },
+
+        async saveCreds() {
+          try {
+            const r = await fetch('/api/settings/credentials', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                provider: 'bitget',
+                label: this.form.label || 'default',
+                api_key: this.form.api_key,
+                api_secret: this.form.api_secret,
+                passphrase: this.form.passphrase,
+                sandbox: this.form.sandbox,
+              }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Kayıt başarısız');
+            }
+            this.showToast('Kaydedildi');
+            this.form.api_key = this.form.api_secret = this.form.passphrase = '';
+            await this.loadCredentials();
+            // Credentials eklendi → sembol listesini tazele
+            this.symbols = [];
+            if (this.activeTab === 'dashboard') await this.loadSymbols();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async testConnection(credId = null) {
+          this.testResult = null;
+          try {
+            const url = credId !== null
+              ? `/api/settings/credentials/test?cred_id=${credId}`
+              : '/api/settings/credentials/test';
+            const r = await fetch(url, { method: 'POST' });
+            this.testResult = await r.json();
+          } catch (e) { this.testResult = { ok: false, message: e.message }; }
+        },
+
+        async deleteCreds(id) {
+          if (!confirm('Bu API anahtarı silinsin mi?')) return;
+          try {
+            const r = await fetch(`/api/settings/credentials/${id}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error('Silme başarısız');
+            this.showToast('Silindi');
+            await this.loadCredentials();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        // ========== trading mode ==========
+
+        async loadMode() {
+          try {
+            const r = await fetch('/api/trading/mode');
+            if (r.ok) this.tradingMode = await r.json();
+          } catch (e) { /* ignore */ }
+        },
+
+        openModeDialog() {
+          this.modeDialog = { show: true, confirmLive: false };
+        },
+
+        async switchMode(newMode) {
+          try {
+            const r = await fetch('/api/trading/mode', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: newMode, confirm_live: newMode === 'live' }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Mod değiştirilemedi');
+            }
+            this.tradingMode = await r.json();
+            this.modeDialog.show = false;
+            this.showToast(`${newMode.toUpperCase()} moduna geçildi`);
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        // ========== positions ==========
+
+        async loadPositions() {
+          try {
+            const qs = this.positionsFilter === 'open' ? '?status=open' : '';
+            const r = await fetch(`/api/trading/positions${qs}`);
+            if (r.ok) this.positions = await r.json();
+          } catch (e) { /* ignore */ }
+        },
+
+        async closePosition(id) {
+          if (!confirm('Bu pozisyon kapatılsın mı?')) return;
+          try {
+            const r = await fetch(`/api/trading/positions/${id}/close`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: 'closed_manual' }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Kapatma başarısız');
+            }
+            this.showToast('Pozisyon kapatıldı');
+            await this.loadPositions();
+            await this.loadMode();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async paperTick() {
+          try {
+            const r = await fetch('/api/trading/positions/tick', { method: 'POST' });
+            const data = await r.json();
+            this.showToast(`Tick: ${data.checked} kontrol / ${data.closed} kapandı`);
+            await this.loadPositions();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async openFromSignal(signal) {
+          const modeLabel = this.tradingMode.mode === 'live' ? 'CANLI' : 'paper';
+          if (!confirm(`${modeLabel} pozisyon açılsın mı?\n${signal.side.toUpperCase()} ${signal.symbol} @ ${signal.entry_price}`)) return;
+          // Strateji config'indeki size/leverage varsayılanı kullan; yoksa 10$/5x
+          const cfg = this.configs[signal.strategy_id];
+          const size = cfg?.size_usdt || 10;
+          const lev = cfg?.leverage || 5;
+          try {
+            const r = await fetch('/api/trading/positions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: signal.symbol,
+                side: signal.side,
+                size_usdt: size,
+                leverage: lev,
+                stop_loss: signal.stop_loss,
+                take_profit: signal.take_profit,
+              }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Açma başarısız');
+            }
+            this.showToast('Pozisyon açıldı');
+            await this.loadPositions();
+            await this.loadMode();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        // ========== signals ==========
+
+        async loadSignals() {
+          try {
+            const r = await fetch('/api/trading/signals?limit=20');
+            if (r.ok) this.signals = await r.json();
+          } catch (e) { /* ignore */ }
+        },
+
+        async evaluateAllStrategies() {
+          if (!this.selectedSymbol) return;
+          this.evaluating = true;
+          this.evalResults = [];
+          try {
+            const ids = this.strategies.length > 0
+              ? this.strategies.map(s => s.id)
+              : ['scalp_ema_rsi', 'swing_smc_fib'];
+            for (const sid of ids) {
+              try {
+                const encoded = encodeURIComponent(this.selectedSymbol);
+                const r = await fetch(`/api/strategies/${sid}/evaluate/${encoded}?tf=${this.timeframe}`, { method: 'POST' });
+                if (r.ok) this.evalResults.push(await r.json());
+              } catch {}
+            }
+          } finally {
+            this.evaluating = false;
+          }
+        },
+
+        // ========== strategies tab ==========
+
+        async loadStrategies() {
+          try {
+            const r = await fetch('/api/strategies');
+            if (r.ok) {
+              this.strategies = await r.json();
+              // Her strateji için config'i de yükle
+              for (const s of this.strategies) {
+                await this.loadConfig(s.id);
+              }
+            }
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async loadConfig(strategyId) {
+          try {
+            const r = await fetch(`/api/strategies/${strategyId}/config`);
+            if (r.ok) this.configs[strategyId] = await r.json();
+          } catch {}
+        },
+
+        async updateConfig(strategyId, patch) {
+          try {
+            const r = await fetch(`/api/strategies/${strategyId}/config`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patch),
+            });
+            if (!r.ok) throw new Error('Güncellenemedi');
+            this.configs[strategyId] = await r.json();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        toggleTimeframe(strategyId, tf) {
+          const cfg = this.configs[strategyId];
+          if (!cfg) return;
+          const cur = new Set(cfg.timeframes || []);
+          if (cur.has(tf)) cur.delete(tf); else cur.add(tf);
+          this.updateConfig(strategyId, { timeframes: [...cur] });
+        },
+
+        async evalStrategy(strategyId) {
+          if (!this.selectedSymbol) {
+            this.showToast('Önce Ana Sayfa\'dan sembol seç', 'error');
+            return;
+          }
+          this.evaluating = true;
+          try {
+            const encoded = encodeURIComponent(this.selectedSymbol);
+            const r = await fetch(`/api/strategies/${strategyId}/evaluate/${encoded}?tf=${this.timeframe}`, { method: 'POST' });
+            if (r.ok) this.strategyEvalResults[strategyId] = await r.json();
+          } catch (e) { this.showToast(e.message, 'error'); }
+          finally { this.evaluating = false; }
+        },
+
+        // ========== risk & ai (Faz 4) ==========
+
+        async loadRiskState() {
+          try {
+            const r = await fetch('/api/risk/state');
+            if (r.ok) this.riskState = await r.json();
+          } catch (e) { /* ignore */ }
+        },
+
+        async loadRiskStatus() {
+          try {
+            const r = await fetch('/api/risk/status');
+            if (r.ok) this.riskStatus = await r.json();
+          } catch (e) { /* ignore */ }
+        },
+
+        async updateRiskState(patch) {
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patch),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Güncellenemedi');
+            }
+            this.riskState = await r.json();
+            await this.loadRiskStatus();
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async resetBreaker() {
+          if (!confirm('Circuit breaker manuel olarak resetlensin mi?\nGünlük zarar limitine ulaştığında tekrar tetiklenir.')) return;
+          try {
+            const r = await fetch('/api/risk/circuit-breaker/reset', { method: 'POST' });
+            if (!r.ok) throw new Error('Reset başarısız');
+            this.riskStatus = await r.json();
+            await this.loadRiskState();
+            this.showToast('Circuit breaker resetlendi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async testAi() {
+          this.aiTestResult = null;
+          try {
+            const r = await fetch('/api/risk/ai/test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ symbol: 'BTC/USDT:USDT', side: 'long' }),
+            });
+            this.aiTestResult = await r.json();
+          } catch (e) {
+            this.aiTestResult = { ok: false, notes: e.message };
+          }
+        },
+
+        async saveTelegramToken() {
+          if (!this.telegramTokenInput.trim()) return;
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ telegram_bot_token: this.telegramTokenInput.trim() }),
+            });
+            if (!r.ok) throw new Error('Kaydedilemedi');
+            this.riskState = await r.json();
+            this.telegramTokenInput = '';
+            this.showToast('Token kaydedildi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async saveAnthropicKey() {
+          if (!this.anthropicKeyInput.trim()) return;
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ anthropic_api_key: this.anthropicKeyInput.trim() }),
+            });
+            if (!r.ok) throw new Error('Kaydedilemedi');
+            this.riskState = await r.json();
+            this.anthropicKeyInput = '';
+            this.aiConnectionTestResult = null;
+            this.showToast('AI key kaydedildi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async clearAnthropicKey() {
+          if (!confirm('Anthropic API key temizlensin mi?')) return;
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ anthropic_api_key: '' }),
+            });
+            if (!r.ok) throw new Error('Temizlenemedi');
+            this.riskState = await r.json();
+            this.aiConnectionTestResult = null;
+            this.showToast('AI key temizlendi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async saveOpenaiKey() {
+          if (!this.openaiKeyInput.trim()) return;
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ openai_api_key: this.openaiKeyInput.trim() }),
+            });
+            if (!r.ok) throw new Error('Kaydedilemedi');
+            this.riskState = await r.json();
+            this.openaiKeyInput = '';
+            this.openaiConnectionTestResult = null;
+            this.showToast('OpenAI key kaydedildi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async clearOpenaiKey() {
+          if (!confirm('OpenAI API key temizlensin mi?')) return;
+          try {
+            const r = await fetch('/api/risk/state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ openai_api_key: '' }),
+            });
+            if (!r.ok) throw new Error('Temizlenemedi');
+            this.riskState = await r.json();
+            this.openaiConnectionTestResult = null;
+            this.showToast('OpenAI key temizlendi');
+          } catch (e) { this.showToast(e.message, 'error'); }
+        },
+
+        async testOpenaiConnection() {
+          this.openaiConnectionTestResult = null;
+          try {
+            const r = await fetch('/api/risk/openai/connection-test', { method: 'POST' });
+            this.openaiConnectionTestResult = await r.json();
+          } catch (e) {
+            this.openaiConnectionTestResult = {
+              ok: false,
+              message: e.message,
+              error: 'request_failed',
+            };
+          }
+        },
+
+        async testAiConnection() {
+          this.aiConnectionTestResult = null;
+          try {
+            const r = await fetch('/api/risk/ai/connection-test', { method: 'POST' });
+            this.aiConnectionTestResult = await r.json();
+          } catch (e) {
+            this.aiConnectionTestResult = {
+              ok: false,
+              message: e.message,
+              latency_ms: null,
+              error: 'request_failed',
+            };
+          }
+        },
+
+        async testTelegram() {
+          this.telegramTestResult = null;
+          try {
+            const r = await fetch('/api/risk/telegram/test', { method: 'POST' });
+            this.telegramTestResult = await r.json();
+          } catch (e) {
+            this.telegramTestResult = { ok: false, message: e.message };
+          }
+        },
+
+        async confirmLiveAuto(e) {
+          const desired = e.target.checked;
+          if (desired) {
+            const ok = confirm(
+              "⚠ CANLI AUTO-TRADING\n\n" +
+              "Bu flag'i açarsan VE trading modu LIVE ise VE scheduler açık ise,\n" +
+              "bot gerçek para ile otomatik emir gönderir.\n\n" +
+              "Devam etmek istiyor musun?"
+            );
+            if (!ok) {
+              e.target.checked = false;
+              return;
+            }
+          }
+          await this.updateRiskState({ live_auto_trading_enabled: desired });
+        },
+
+        // ========== logs + stats (Faz 5) ==========
+
+        async loadLogsFilesInfo() {
+          try {
+            const r = await fetch('/api/logs/files');
+            if (r.ok) this.logs.filesInfo = await r.json();
+          } catch {}
+        },
+
+        async loadLogs() {
+          this.logs.loading = true;
+          try {
+            const params = new URLSearchParams({
+              which: this.logs.which,
+              limit: this.logs.limit,
+            });
+            if (this.logs.level) params.set('level', this.logs.level);
+            if (this.logs.contains) params.set('contains', this.logs.contains);
+            const r = await fetch(`/api/logs/tail?${params}`);
+            if (r.ok) {
+              const d = await r.json();
+              this.logs.lines = d.lines || [];
+            }
+          } catch (e) {
+            this.showToast('Log alınamadı: ' + e.message, 'error');
+          } finally {
+            this.logs.loading = false;
+          }
+        },
+
+        toggleLogsAutoRefresh() {
+          if (this.logs.timer) {
+            clearInterval(this.logs.timer);
+            this.logs.timer = null;
+          }
+          if (this.logs.autoRefresh) {
+            this.logs.timer = setInterval(() => {
+              if (this.activeTab === 'logs') this.loadLogs();
+            }, 10000);
+          }
+        },
+
+        async loadStats() {
+          try {
+            const qs = this.stats.mode ? `?mode=${this.stats.mode}` : '';
+            const r = await fetch(`/api/stats/summary${qs}`);
+            if (r.ok) this.stats.data = await r.json();
+          } catch {}
+        },
+
+        // ========== market ==========
+
+        async loadSymbols() {
+          this.symbolsLoading = true;
+          try {
+            const r = await fetch('/api/market/symbols?limit=300');
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Sembol listesi alınamadı');
+            }
+            this.symbols = await r.json();
+          } catch (e) {
+            this.error = 'Sembol listesi yüklenemedi: ' + e.message;
+          } finally {
+            this.symbolsLoading = false;
+          }
+        },
+
+        selectSymbol(sym) {
+          this.selectedSymbol = sym;
+          try { localStorage.setItem('apb_symbol', sym); } catch {}
+          this.loadAnalysis();
+        },
+
+        changeTimeframe(tf) {
+          this.timeframe = tf;
+          try { localStorage.setItem('apb_tf', tf); } catch {}
+          if (this.selectedSymbol) this.loadAnalysis();
+        },
+
+        async loadAnalysis() {
+          if (!this.selectedSymbol) return;
+          this.loading = true;
+          this.error = null;
+          try {
+            const encoded = encodeURIComponent(this.selectedSymbol);
+            const r = await fetch(`/api/market/analysis/${encoded}?tf=${this.timeframe}&limit=300`);
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.detail || 'Analiz alınamadı');
+            }
+            this.analysis = await r.json();
+            // Grafik DOM'un renderlanmasını bekle, sonra çiz
+            this.$nextTick(() => this.renderCharts());
+          } catch (e) {
+            this.error = e.message;
+            this.analysis = null;
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        toggleAutoRefresh() {
+          if (this.autoRefreshTimer) {
+            clearInterval(this.autoRefreshTimer);
+            this.autoRefreshTimer = null;
+          }
+          if (this.autoRefresh) {
+            this.autoRefreshTimer = setInterval(() => {
+              if (this.activeTab === 'dashboard' && this.selectedSymbol) this.loadAnalysis();
+            }, 15000);
+          }
+        },
+
+        // ========== charts ==========
+
+        _chartTheme() {
+          return {
+            layout: { background: { color: '#111827' }, textColor: '#d1d5db' },
+            grid: {
+              vertLines: { color: '#1f2937' },
+              horzLines: { color: '#1f2937' },
+            },
+            timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#374151' },
+            rightPriceScale: { borderColor: '#374151' },
+            crosshair: { mode: 0 },
+          };
+        },
+
+        _initChartsIfNeeded() {
+          const LWC = window.LightweightCharts;
+          if (!LWC) return false;
+
+          if (!this.chartMain) {
+            const el = document.getElementById('chart-main');
+            if (!el) return false;
+            this.chartMain = LWC.createChart(el, { ...this._chartTheme(), height: 460 });
+          }
+          if (!this.chartRsi) {
+            const el = document.getElementById('chart-rsi');
+            if (!el) return false;
+            this.chartRsi = LWC.createChart(el, { ...this._chartTheme(), height: 160 });
+          }
+          if (!this.chartMacd) {
+            const el = document.getElementById('chart-macd');
+            if (!el) return false;
+            this.chartMacd = LWC.createChart(el, { ...this._chartTheme(), height: 140 });
+          }
+          if (!this.chartStoch) {
+            const el = document.getElementById('chart-stoch');
+            if (!el) return false;
+            this.chartStoch = LWC.createChart(el, { ...this._chartTheme(), height: 140 });
+          }
+          return true;
+        },
+
+        resizeCharts() {
+          if (this.chartMain)  this.chartMain.applyOptions({ width: document.getElementById('chart-main').clientWidth });
+          if (this.chartRsi)   this.chartRsi.applyOptions({ width: document.getElementById('chart-rsi').clientWidth });
+          if (this.chartMacd)  this.chartMacd.applyOptions({ width: document.getElementById('chart-macd').clientWidth });
+          if (this.chartStoch) this.chartStoch.applyOptions({ width: document.getElementById('chart-stoch').clientWidth });
+        },
+
+        renderCharts() {
+          if (!this.analysis) return;
+          if (!this._initChartsIfNeeded()) return;
+
+          const a = this.analysis;
+
+          // ---- Mumlar ----
+          const candles = a.candles.map(c => ({
+            time: Math.floor(c.ts / 1000),
+            open: c.open, high: c.high, low: c.low, close: c.close,
+          }));
+
+          // Candlestick serisini kur
+          if (!this.series.candles) {
+            this.series.candles = this.chartMain.addCandlestickSeries({
+              upColor: '#10b981', downColor: '#ef4444',
+              borderVisible: false,
+              wickUpColor: '#10b981', wickDownColor: '#ef4444',
+            });
+          }
+          this.series.candles.setData(candles);
+
+          // ---- EMA'lar ----
+          // Önce mevcut EMA serilerini temizle
+          if (this.series.emas) {
+            for (const s of Object.values(this.series.emas)) {
+              try { this.chartMain.removeSeries(s); } catch {}
+            }
+          }
+          this.series.emas = {};
+          if (this.show.emas && a.indicators_series?.ema) {
+            const colors = { ema_9: '#fbbf24', ema_21: '#a78bfa', ema_50: '#60a5fa', ema_200: '#f472b6' };
+            const ts = a.indicators_series.ts;
+            for (const [key, values] of Object.entries(a.indicators_series.ema)) {
+              const color = colors[key] || '#9ca3af';
+              const line = this.chartMain.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+              const data = ts.map((t, i) => values[i] == null ? null : ({ time: Math.floor(t/1000), value: values[i] }))
+                            .filter(Boolean);
+              line.setData(data);
+              this.series.emas[key] = line;
+            }
+          }
+
+          // ---- Bollinger ----
+          for (const k of ['bbU', 'bbL']) {
+            if (this.series[k]) { try { this.chartMain.removeSeries(this.series[k]); } catch {} this.series[k] = null; }
+          }
+          if (this.show.bbands && a.indicators_series?.bb_upper && a.indicators_series?.bb_lower) {
+            const ts = a.indicators_series.ts;
+            const upper = a.indicators_series.bb_upper;
+            const lower = a.indicators_series.bb_lower;
+            const u = this.chartMain.addLineSeries({ color: '#38bdf8', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+            const l = this.chartMain.addLineSeries({ color: '#38bdf8', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+            u.setData(ts.map((t, i) => upper[i] == null ? null : ({ time: Math.floor(t/1000), value: upper[i] })).filter(Boolean));
+            l.setData(ts.map((t, i) => lower[i] == null ? null : ({ time: Math.floor(t/1000), value: lower[i] })).filter(Boolean));
+            this.series.bbU = u; this.series.bbL = l;
+          }
+
+          // ---- Fibonacci price lines ----
+          for (const pl of this.fibLines) {
+            try { this.series.candles.removePriceLine(pl); } catch {}
+          }
+          this.fibLines = [];
+          if (this.show.fib && a.fibonacci) {
+            for (const [label, price] of Object.entries(a.fibonacci.retracement || {})) {
+              const pl = this.series.candles.createPriceLine({
+                price, color: '#a855f7', lineWidth: 1, lineStyle: 2,
+                axisLabelVisible: true, title: `fib ${label}`,
+              });
+              this.fibLines.push(pl);
+            }
+          }
+
+          // ---- SMC işaretleri ----
+          const markers = [];
+          if (this.show.smc && a.smc) {
+            for (const b of a.smc.bos || []) {
+              markers.push({
+                time: Math.floor(b.ts / 1000),
+                position: b.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+                color: b.direction === 'bullish' ? '#10b981' : '#ef4444',
+                shape: b.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
+                text: 'BOS',
+              });
+            }
+            for (const c of a.smc.choch || []) {
+              markers.push({
+                time: Math.floor(c.ts / 1000),
+                position: c.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+                color: '#fbbf24',
+                shape: 'circle',
+                text: 'CHoCH',
+              });
+            }
+          }
+          // Markerlar zamanla sıralı olmalı
+          markers.sort((x, y) => x.time - y.time);
+          this.series.candles.setMarkers(markers);
+
+          // ---- RSI grafiği ----
+          if (!this.series.rsi) {
+            this.series.rsi = this.chartRsi.addLineSeries({ color: '#a78bfa', lineWidth: 2 });
+            // Seviye çizgileri
+            this.series.rsi.createPriceLine({ price: 70, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '70' });
+            this.series.rsi.createPriceLine({ price: 30, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '30' });
+            this.series.rsi.createPriceLine({ price: 50, color: '#6b7280', lineWidth: 1, lineStyle: 3, axisLabelVisible: false });
+          }
+          const rsiData = (a.indicators_series?.ts || [])
+            .map((t, i) => a.indicators_series.rsi[i] == null ? null : ({ time: Math.floor(t/1000), value: a.indicators_series.rsi[i] }))
+            .filter(Boolean);
+          this.series.rsi.setData(rsiData);
+
+          // ---- MACD grafiği ----
+          if (!this.series.macd) {
+            this.series.macd       = this.chartMacd.addLineSeries({ color: '#60a5fa', lineWidth: 2 });
+            this.series.macdSignal = this.chartMacd.addLineSeries({ color: '#f472b6', lineWidth: 1 });
+            this.series.macdHist   = this.chartMacd.addHistogramSeries({ color: '#10b981' });
+          }
+          const ts = a.indicators_series?.ts || [];
+          const toLine = (arr) => ts.map((t, i) => arr[i] == null ? null : ({ time: Math.floor(t/1000), value: arr[i] })).filter(Boolean);
+          const toHist = (arr) => ts.map((t, i) => arr[i] == null ? null : ({
+            time: Math.floor(t/1000),
+            value: arr[i],
+            color: arr[i] >= 0 ? '#10b98155' : '#ef444455',
+          })).filter(Boolean);
+          this.series.macd.setData(toLine(a.indicators_series.macd || []));
+          this.series.macdSignal.setData(toLine(a.indicators_series.macd_signal || []));
+          this.series.macdHist.setData(toHist(a.indicators_series.macd_hist || []));
+
+          // ---- StochRSI grafiği ----
+          if (!this.series.stochK) {
+            this.series.stochK = this.chartStoch.addLineSeries({ color: '#3b82f6', lineWidth: 2, title: 'K' });
+            this.series.stochD = this.chartStoch.addLineSeries({ color: '#f97316', lineWidth: 1, title: 'D' });
+            // Aşırı alım/satım seviyeleri
+            this.series.stochK.createPriceLine({ price: 80, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '80' });
+            this.series.stochK.createPriceLine({ price: 20, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '20' });
+            this.series.stochK.createPriceLine({ price: 50, color: '#6b7280', lineWidth: 1, lineStyle: 3, axisLabelVisible: false });
+          }
+          const stochK = a.indicators_series?.stoch_k || [];
+          const stochD = a.indicators_series?.stoch_d || [];
+          this.series.stochK.setData(toLine(stochK));
+          this.series.stochD.setData(toLine(stochD));
+
+          // Senkronize zaman ölçeği
+          this.chartMain.timeScale().fitContent();
+          this.chartRsi.timeScale().fitContent();
+          this.chartMacd.timeScale().fitContent();
+          this.chartStoch.timeScale().fitContent();
+        },
+      };
+    }
+  </script>
+</body>
+</html>

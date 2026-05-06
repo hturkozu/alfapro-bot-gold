@@ -1,0 +1,88 @@
+# AlfaPro Bot — Nginx reverse proxy örnek
+#
+# Kurulum:
+#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/alfapro
+#   sudo nano /etc/nginx/sites-available/alfapro         # Domain'i güncelle
+#   sudo ln -s /etc/nginx/sites-available/alfapro /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# TLS için (Let's Encrypt):
+#   sudo apt install certbot python3-certbot-nginx
+#   sudo certbot --nginx -d alfapro.example.com
+
+# HTTP — otomatik HTTPS'e yönlendirme
+server {
+    listen 80;
+    listen [::]:80;
+    server_name alfapro.example.com;   # KENDİ DOMAIN'İNİ YAZ
+
+    # ACME challenge (Let's Encrypt)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — asıl proxy
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name alfapro.example.com;
+
+    # ---- TLS (certbot bu kısmı günceller) ----
+    # ssl_certificate     /etc/letsencrypt/live/alfapro.example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/alfapro.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # ---- Güvenlik başlıkları ----
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # ---- Basit HTTP auth (OPSİYONEL ama ÖNERİLİR) ----
+    # API key'ler şifreli olsa da panelin kendi erişimini sınırlandır.
+    # sudo apt install apache2-utils
+    # sudo htpasswd -c /etc/nginx/.htpasswd alfapro
+    # auth_basic "AlfaPro Bot";
+    # auth_basic_user_file /etc/nginx/.htpasswd;
+
+    # ---- IP whitelist (OPSİYONEL, daha katı) ----
+    # allow 203.0.113.10;
+    # deny all;
+
+    # ---- Boyut limitleri ----
+    client_max_body_size 10M;
+
+    # ---- Proxy ----
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket (ileride eklenirse hazır)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Timeout'lar — AI çağrısı uzun sürebilir
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    60s;
+        proxy_read_timeout    60s;
+    }
+
+    # Statik frontend cache
+    location /static/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_cache_valid 200 5m;
+        add_header Cache-Control "public, max-age=300";
+    }
+}

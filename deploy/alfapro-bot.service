@@ -1,0 +1,66 @@
+# AlfaPro Bot — systemd service unit
+#
+# Kurulum:
+#   sudo cp deploy/alfapro-bot.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/alfapro-bot.service    # Yolları/kullanıcıyı güncelle
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now alfapro-bot
+#
+# Kontrol:
+#   sudo systemctl status alfapro-bot
+#   sudo journalctl -u alfapro-bot -f
+
+[Unit]
+Description=AlfaPro Bot — Otomatik kripto al-sat robotu
+Documentation=https://github.com/alfapro-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ---- Kullanıcı ve çalışma dizini ----
+# ÖNEMLİ: Bunları kendi sistemine göre değiştir
+User=alfapro
+Group=alfapro
+WorkingDirectory=/opt/alfapro-bot
+
+# ---- Çalıştırma ----
+# venv içindeki uvicorn'u kullan
+ExecStart=/opt/alfapro-bot/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+# Tek worker ÖNEMLİ — scheduler singleton olduğu için birden fazla worker
+# birden fazla scheduler task'ı üretir.
+
+# ---- Yeniden başlatma ----
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# ---- Güvenlik sertleştirmesi ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/alfapro-bot/data /opt/alfapro-bot/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# ---- Kaynak limitleri ----
+MemoryMax=512M
+TasksMax=256
+
+# ---- Loglar ----
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=alfapro-bot
+
+[Install]
+WantedBy=multi-user.target

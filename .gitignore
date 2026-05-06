@@ -1,0 +1,71 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environments / embedded interpreter ---
+venv/
+.venv/
+env/
+venv311/
+python311/
+alfapro-bot-gold/python311/
+alfapro-bot-gold/venv311/
+
+# --- Environment & secrets ---
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# --- Database & data ---
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Logs ---
+logs/
+*.log
+*.log.*
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.claude/settings.local.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Build / dist ---
+build/
+dist/
+
+# --- Yedek & geçici ---
+backup/
+alfapro-bot-gold/backup/
+alfapro-bot-gold/temp_resp.txt
+*.bak
+*.tmp
+
+# --- Kullanıcı belgeleri (hassas) ---
+*.pdf
+*.docx
+
+# --- Frontend bağımlılıkları (eklenirse) ---
+node_modules/
+
+# --- İç içe duplicate proje klasörü (eski snapshot) ---
+/alfapro-bot-gold/
