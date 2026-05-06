@@ -1,14 +1,11 @@
 # AlfaPro Bot
 
-Bitget futures için otomatik al-sat robotu. Docker'sız, self-host, yapay zeka destekli.
+Bitget USDT-M futures için otomatik al-sat botu. Docker'sız, self-host, AI sinyal validasyonu destekli.
 
-# AlfaPro Bot
+**Aktif sürüm:** `APB-FINAL-v1.0.0` — canlı üretim
+**Repo:** `git@github.com:hturkozu/alfapro-bot-gold.git` (private)
 
-Bitget futures için otomatik al-sat robotu. Docker'sız, self-host, yapay zeka destekli.
-
-**🎉 Aktif Seri:** `APB-FINAL-v1.0.0` — Canlı üretim sürümü
-
-> Tüm yol haritası, seri numarası kayıt defteri ve ürün özeti için [`PROJECT.md`](PROJECT.md) dosyasına bak.
+> Yol haritası, seri kayıt defteri ve ürün özeti için [`PROJECT.md`](PROJECT.md).
 
 ---
 
@@ -21,8 +18,8 @@ Bitget futures için otomatik al-sat robotu. Docker'sız, self-host, yapay zeka 
 ### 2. Depoyu indir, sanal ortam kur
 
 ```bash
-git clone <repo>   # veya zip'i aç
-cd alfapro-bot
+git clone git@github.com:hturkozu/alfapro-bot-gold.git
+cd alfapro-bot-gold
 
 python3.11 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
@@ -79,34 +76,68 @@ Test başarılıysa USDT bakiyen gösterilir.
 ## Proje Yapısı
 
 ```
-alfapro-bot/
-├── PROJECT.md              # Yol haritası, ilerleme takibi (proje anayasası)
+alfapro-bot-gold/
+├── PROJECT.md              # Yol haritası, ilerleme takibi
 ├── README.md               # Bu dosya
 ├── requirements.txt
 ├── .env.example
 ├── app/
-│   ├── main.py             # FastAPI entry
-│   ├── config.py           # Ayar yükleyici
-│   ├── core/               # database, security, logger
-│   ├── models/             # SQLAlchemy modelleri
+│   ├── main.py             # FastAPI entry + lifespan
+│   ├── config.py           # Settings (pydantic-settings)
+│   ├── core/               # database, security (Fernet), logger
+│   ├── models/             # SQLAlchemy ORM modelleri
 │   ├── schemas/            # Pydantic şemaları
-│   ├── routers/            # API endpoint'leri
-│   └── services/           # bitget_client, (sonra) indicators, signals
+│   ├── routers/            # health, settings, market, strategies, trading, risk, logs, backtest, ws
+│   └── services/
+│       ├── bitget_client.py, market_data.py, indicators.py, fibonacci.py, smc.py
+│       ├── ai_validator.py, risk_manager.py, scheduler.py
+│       ├── paper_trader.py, live_trader.py, backtester.py
+│       ├── telegram_notifier.py, log_reader.py, trade_stats.py, commodity_catalog.py
+│       └── strategies/     # base, registry + scalp_ema_rsi, scalp_sweep_momentum, swing_smc_fib
 ├── frontend/
-│   └── index.html          # Alpine.js + Tailwind panel
+│   └── index.html          # Alpine.js + Tailwind tek-sayfa panel
+├── scripts/
+│   ├── generate_master_key.py
+│   └── test_paper_improvements.py
 ├── data/                   # SQLite DB (git-ignore)
-├── logs/                   # Log dosyaları (git-ignore)
-└── scripts/
-    └── generate_master_key.py
+└── logs/                   # Log dosyaları (git-ignore)
 ```
+
+---
+
+## Paper Trading Davranışı
+
+Paper modu artık üç katmanlı bir realizm/risk yönetimi içerir; hepsi `.env` üzerinden yapılandırılır.
+
+### 1. Komisyon modeli
+Açılış ve kapanışta taker fee otomatik düşülür; `Position.pnl_usdt` net PnL gösterir, `Trade` kayıtlarında `fee_usdt` doludur.
+
+```
+PAPER_TAKER_FEE_PCT=0.06    # Bitget USDT-M default
+```
+
+### 2. Wick-bazlı SL/TP
+Scheduler her açık pozisyon için 1m mum yüksek/düşüğünü çekip `check_sl_tp`'ye geçirir; tick'ler arası wick'ler kaçırılmaz. Aynı barda hem SL hem TP varsa konservatif şekilde **SL öncelikli**.
+
+### 3. Break-even & trailing stop
+`apply_trailing` her tick'te SL'i sadece **lehte yönde** sıkıştırır (asla geriletmez). BE eşiği = TP mesafesinin %X'i; trailing = peak × (1 ± y/100). İkisi aynı anda aktif olabilir, en sıkı olan kazanır, SL TP'yi geçemez.
+
+```
+PAPER_BREAKEVEN_TRIGGER_PCT=50    # 0 = kapalı; 50 = TP'nin yarısına gelince BE
+PAPER_BREAKEVEN_OFFSET_PCT=0.06   # entry üstü/altı tampon (fee karşılığı)
+PAPER_TRAILING_PCT=0.4            # 0 = kapalı; %0.4 trailing
+```
+
+Default'lar üretimde **kapalı** (BE/trailing 0). `.env.example` referans alınabilir.
 
 ---
 
 ## Geliştirme
 
-### Testleri çalıştır (ileride eklenecek)
+### Testleri çalıştır
 ```bash
-pytest
+# Paper trading geliştirmeleri (fee, wick, BE/trailing) — 24 test
+PYTHONUTF8=1 ./alfapro-bot-gold/venv311/Scripts/python.exe scripts/test_paper_improvements.py
 ```
 
 ### Veritabanını sıfırla
@@ -197,6 +228,17 @@ Detaylar için [`PROJECT.md`](PROJECT.md).
 
 Özel proje.
 
+---
 
-cd C:\Users\admin\Desktop\alfapro-bot-gold\alfapro-bot-gold
-venv311\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+## Yerel Geliştirme — Hızlı Başlat (Windows)
+
+```powershell
+cd C:\Users\admin\Desktop\alfapro-bot-gold
+.\alfapro-bot-gold\venv311\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+veya:
+
+```powershell
+.\start-dev.bat
+```
