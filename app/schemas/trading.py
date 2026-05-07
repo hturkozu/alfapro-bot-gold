@@ -33,6 +33,8 @@ class SignalCore(BaseModel):
     confidence: float = Field(ge=0.0, le=100.0)
     reasoning: list[str] = Field(default_factory=list)
     ts: int
+    # Opsiyonel: stratejinin önerdiği ATR tabanlı trailing genişliği (yoksa 0.0)
+    trailing_stop_atr: float = 0.0
 
 
 class SignalOut(BaseModel):

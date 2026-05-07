@@ -64,12 +64,19 @@ def _get_or_create_config(db: Session, strategy_id: str) -> StrategyConfig:
 
 
 def _cfg_to_out(cfg: StrategyConfig) -> StrategyConfigOut:
+    # default_params + DB override merge — UI'da tüm parametreler görünsün
+    # ve yeni eklenen default'lar mevcut kayıtlara otomatik gelsin.
+    strat_cls = next(
+        (s for s in list_strategies() if s.id == cfg.strategy_id), None
+    )
+    defaults = dict(strat_cls.default_params) if strat_cls else {}
+    merged = {**defaults, **(cfg.params or {})}
     return StrategyConfigOut(
         strategy_id=cfg.strategy_id,
         enabled=cfg.enabled,
         symbols=cfg.symbols_list,
         timeframes=cfg.timeframes_list,
-        params=cfg.params,
+        params=merged,
         size_usdt=cfg.size_usdt,
         leverage=cfg.leverage,
         updated_at=cfg.updated_at,

@@ -12,12 +12,14 @@ from typing import Any
 
 from app.schemas.trading import StrategyInfo
 from app.services.strategies.base import BaseStrategy
+from app.services.strategies.scalp_1m import Scalp1M
 from app.services.strategies.scalp_ema_rsi import ScalpEmaRsi
 from app.services.strategies.scalp_sweep_momentum import ScalpSweepMomentum
 from app.services.strategies.swing_smc_fib import SwingSmcFib
 
 
 _STRATEGIES: dict[str, type[BaseStrategy]] = {
+    Scalp1M.id: Scalp1M,
     ScalpEmaRsi.id: ScalpEmaRsi,
     ScalpSweepMomentum.id: ScalpSweepMomentum,
     SwingSmcFib.id: SwingSmcFib,

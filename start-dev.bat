@@ -1,9 +1,11 @@
 @echo off
 title AlfaPro Bot - DEV
-cd /d "%~dp0alfapro-bot-gold"
+cd /d "%~dp0"
 
-if not exist "venv311\Scripts\python.exe" (
-    echo [HATA] venv311 bulunamadi.
+set VENV_PY=alfapro-bot-gold\venv311\Scripts\python.exe
+
+if not exist "%VENV_PY%" (
+    echo [HATA] venv bulunamadi: %VENV_PY%
     pause
     exit /b 1
 )
@@ -27,5 +29,5 @@ echo.
 
 set APP_ENV=development
 set APP_DEBUG=true
-venv311\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+"%VENV_PY%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 pause
